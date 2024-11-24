@@ -11,6 +11,19 @@
 #define ALIGN_TO_BLOCK(offset)                                                 \
   (((offset) + BLOCK_SIZE - 1) / BLOCK_SIZE * BLOCK_SIZE)
 
+size_t round_up_to_power_of_2(size_t x) {
+  if (x == 0)
+    return 1;
+  x--;
+  x |= x >> 1;
+  x |= x >> 2;
+  x |= x >> 4;
+  x |= x >> 8;
+  x |= x >> 16;
+  x |= x >> 32;
+  return x + 1;
+}
+
 size_t calculate_required_size(size_t inode_count, size_t data_block_count) {
   size_t sb_size = sizeof(struct wfs_sb);
   size_t i_bitmap_size = (inode_count + 7) / 8;
@@ -121,13 +134,13 @@ int initialize_disk(const char *disk_file, size_t inode_count,
   }
 
   off_t disk_size = lseek(fd, 0, SEEK_END);
-  printf("%ld %ld\n", disk_size, required_size);
   if (disk_size < required_size) {
     fprintf(stderr, "Disk %s is too small for the filesystem\n", disk_file);
     close(fd);
     return -1;
   }
 
+  inode_count = round_up_to_power_of_2(inode_count);
   struct wfs_sb sb = write_superblock(fd, inode_count, data_block_count);
   write_bitmaps(fd, inode_count, data_block_count, &sb);
   write_root_inode(fd, &sb);
