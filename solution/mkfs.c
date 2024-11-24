@@ -1,5 +1,6 @@
 #include "fs_utils.h"
 #include <fcntl.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,13 +32,13 @@ int main(int argc, char *argv[]) {
 
   data_block_count = (data_block_count + 31) & ~31;
 
-  int required_size = calculate_required_size(inode_count, data_block_count);
+  size_t required_size = calculate_required_size(inode_count, data_block_count);
 
   for (int i = 0; i < disk_count; i++) {
     if (initialize_disk(disk_files[i], inode_count, data_block_count,
                         required_size) != 0) {
       fprintf(stderr, "Failed to initialize disk: %s\n", disk_files[i]);
-      return 1;
+      return -1;
     }
   }
 
