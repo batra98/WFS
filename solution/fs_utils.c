@@ -140,7 +140,6 @@ int initialize_disk(const char *disk_file, size_t inode_count,
     return -1;
   }
 
-  inode_count = round_up_to_power_of_2(inode_count);
   struct wfs_sb sb = write_superblock(fd, inode_count, data_block_count);
   write_bitmaps(fd, inode_count, data_block_count, &sb);
   write_root_inode(fd, &sb);
