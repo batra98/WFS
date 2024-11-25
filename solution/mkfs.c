@@ -79,6 +79,7 @@ int main(int argc, char *argv[]) {
   }
 
   data_block_count = (data_block_count + 31) & ~31;
+  inode_count = (inode_count + 31) & ~31;
 
   size_t required_size = calculate_required_size(inode_count, data_block_count);
 
