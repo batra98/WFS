@@ -21,12 +21,12 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[i + 1], "1v") == 0) {
           raid_mode = 2;
         } else {
-          fprintf(stderr, "Unsupported RAID mode: %s\n", argv[i + 1]);
+          // fprintf(stderr, "Unsupported RAID mode: %s\n", argv[i + 1]);
           return 1;
         }
         i++;
       } else {
-        fprintf(stderr, "Missing argument for -r (RAID mode)\n");
+        // fprintf(stderr, "Missing argument for -r (RAID mode)\n");
         return 1;
       }
     } else if (strcmp(argv[i], "-d") == 0) {
@@ -34,14 +34,14 @@ int main(int argc, char *argv[]) {
         char **new_disk_files =
             realloc(disk_files, (disk_count + 1) * sizeof(char *));
         if (new_disk_files == NULL) {
-          fprintf(stderr, "Failed to allocate memory for disk files\n");
+          // fprintf(stderr, "Failed to allocate memory for disk files\n");
           free(disk_files);
           return 1;
         }
         disk_files = new_disk_files;
         disk_files[disk_count++] = argv[++i];
       } else {
-        fprintf(stderr, "Missing argument for -d (disk file)\n");
+        // fprintf(stderr, "Missing argument for -d (disk file)\n");
         free(disk_files);
         return 1;
       }
@@ -49,29 +49,29 @@ int main(int argc, char *argv[]) {
       if (i + 1 < argc) {
         inode_count = atoi(argv[++i]);
         if (inode_count <= 0) {
-          fprintf(stderr, "Invalid inode count: %s\n", argv[i]);
+          // fprintf(stderr, "Invalid inode count: %s\n", argv[i]);
           return 1;
         }
       } else {
-        fprintf(stderr, "Missing argument for -i (inode count)\n");
+        // fprintf(stderr, "Missing argument for -i (inode count)\n");
         return 1;
       }
     } else if (strcmp(argv[i], "-b") == 0) {
       if (i + 1 < argc) {
         data_block_count = atoi(argv[++i]);
         if (data_block_count <= 0) {
-          fprintf(stderr, "Invalid data block count: %s\n", argv[i]);
+          // fprintf(stderr, "Invalid data block count: %s\n", argv[i]);
           return 1;
         }
       } else {
-        fprintf(stderr, "Missing argument for -b (data block count)\n");
+        // fprintf(stderr, "Missing argument for -b (data block count)\n");
         return 1;
       }
     }
   }
 
   if (raid_mode == -1) {
-    fprintf(stderr, "RAID mode (-r) must be specified (0, 1, or 1v)\n");
+    // fprintf(stderr, "RAID mode (-r) must be specified (0, 1, or 1v)\n");
     return 1;
   }
   if (disk_count < 2) {
@@ -85,12 +85,12 @@ int main(int argc, char *argv[]) {
 
   for (int i = 0; i < disk_count; i++) {
     if (initialize_disk(disk_files[i], inode_count, data_block_count,
-                        required_size) != 0) {
-      fprintf(stderr, "Failed to initialize disk: %s\n", disk_files[i]);
+                        required_size, raid_mode, i, disk_count) != 0) {
+      // fprintf(stderr, "Failed to initialize disk: %s\n", disk_files[i]);
       return -1;
     }
   }
 
-  printf("Filesystem initialized successfully on %d disk(s).\n", disk_count);
+  // printf("Filesystem initialized successfully on %d disk(s).\n", disk_count);
   return 0;
 }
