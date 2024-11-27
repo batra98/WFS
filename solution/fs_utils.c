@@ -47,10 +47,13 @@ size_t calculate_required_size(size_t inode_count, size_t data_block_count) {
 }
 
 struct wfs_sb write_superblock(int fd, size_t inode_count,
-                               size_t data_block_count) {
+                               size_t data_block_count, int raid_mode,
+                               int disk_index, int total_disks) {
   size_t i_bitmap_size = (inode_count + 7) / 8;
   size_t d_bitmap_size = (data_block_count + 7) / 8;
   size_t inode_table_size = inode_count * BLOCK_SIZE;
+
+  uint64_t disk_id = (uint64_t)time(NULL) ^ (disk_index + 1) ^ rand();
 
   struct wfs_sb sb = {
       .num_inodes = inode_count,
@@ -61,6 +64,10 @@ struct wfs_sb write_superblock(int fd, size_t inode_count,
           ALIGN_TO_BLOCK(sizeof(struct wfs_sb) + i_bitmap_size + d_bitmap_size),
       .d_blocks_ptr = ALIGN_TO_BLOCK(sizeof(struct wfs_sb) + i_bitmap_size +
                                      d_bitmap_size + inode_table_size),
+      .raid_mode = raid_mode,
+      .disk_index = disk_index,
+      .total_disks = total_disks,
+      .disk_id = disk_id,
   };
 
   lseek(fd, 0, SEEK_SET);
@@ -126,7 +133,8 @@ void write_root_inode(int fd, struct wfs_sb *sb) {
 }
 
 int initialize_disk(const char *disk_file, size_t inode_count,
-                    size_t data_block_count, size_t required_size) {
+                    size_t data_block_count, size_t required_size,
+                    int raid_mode, int disk_index, int total_disks) {
   int fd = open(disk_file, O_RDWR, 0644);
   if (fd < 0) {
     perror("Error opening disk file");
@@ -135,12 +143,13 @@ int initialize_disk(const char *disk_file, size_t inode_count,
 
   off_t disk_size = lseek(fd, 0, SEEK_END);
   if (disk_size < required_size) {
-    fprintf(stderr, "Disk %s is too small for the filesystem\n", disk_file);
+    // fprintf(stderr, "Disk %s is too small for the filesystem\n", disk_file);
     close(fd);
     return -1;
   }
 
-  struct wfs_sb sb = write_superblock(fd, inode_count, data_block_count);
+  struct wfs_sb sb = write_superblock(fd, inode_count, data_block_count,
+                                      raid_mode, disk_index, total_disks);
   write_bitmaps(fd, inode_count, data_block_count, &sb);
   write_root_inode(fd, &sb);
 
