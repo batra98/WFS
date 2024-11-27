@@ -1,6 +1,7 @@
 #ifndef WFS_H
 #define WFS_H
 
+#include <stdint.h>
 #include <sys/stat.h>
 #include <time.h>
 
@@ -26,7 +27,7 @@ i_bitmap_ptr        i_blocks_ptr
 
 */
 
-// Superblock
+// superblock
 struct wfs_sb {
   size_t num_inodes;
   size_t num_data_blocks;
@@ -34,10 +35,11 @@ struct wfs_sb {
   off_t d_bitmap_ptr;
   off_t i_blocks_ptr;
   off_t d_blocks_ptr;
-  // Extend after this line
+  // extend after this line
   int raid_mode;
-  int num_disks;
-  int *disk_position;
+  int disk_index;
+  int total_disks;
+  uint64_t disk_id;
 };
 
 // Inode
