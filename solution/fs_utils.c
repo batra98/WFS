@@ -1,4 +1,5 @@
 #include "wfs.h"
+
 #include <fcntl.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -7,6 +8,8 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+
+#include "inode.h"
 
 #define ALIGN_TO_BLOCK(offset)                                                 \
   (((offset) + BLOCK_SIZE - 1) / BLOCK_SIZE * BLOCK_SIZE)
@@ -106,14 +109,6 @@ void write_bitmaps(int fd, size_t inode_count, size_t data_block_count,
     exit(EXIT_FAILURE);
   }
   free(bitmap);
-}
-
-void write_inode(int fd, struct wfs_inode *inode, size_t inode_index,
-                 struct wfs_sb *sb) {
-  off_t inode_offset = sb->i_blocks_ptr + inode_index * BLOCK_SIZE;
-
-  lseek(fd, inode_offset, SEEK_SET);
-  write(fd, inode, sizeof(struct wfs_inode));
 }
 
 void write_root_inode(int fd, struct wfs_sb *sb) {
