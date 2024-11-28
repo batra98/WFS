@@ -2,6 +2,7 @@
 
 #include "wfs.h"
 #include "fuse.h"
+#include "globals.h"
 #include "inode.h"
 #include <errno.h>
 #include <fcntl.h>

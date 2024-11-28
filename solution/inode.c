@@ -1,3 +1,4 @@
+#include "globals.h"
 #include "wfs.h"
 #include <errno.h>
 #include <stdlib.h>
