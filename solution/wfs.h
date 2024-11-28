@@ -64,6 +64,4 @@ struct wfs_dentry {
   int num;
 };
 
-extern int disk_fd;
-extern struct wfs_sb sb;
 #endif
