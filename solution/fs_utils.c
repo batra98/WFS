@@ -9,8 +9,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "inode.h"
-
 #define ALIGN_TO_BLOCK(offset)                                                 \
   (((offset) + BLOCK_SIZE - 1) / BLOCK_SIZE * BLOCK_SIZE)
 
@@ -111,6 +109,14 @@ void write_bitmaps(int fd, size_t inode_count, size_t data_block_count,
   free(bitmap);
 }
 
+void write_inode_to_file(int fd, struct wfs_inode *inode, size_t inode_index,
+                         struct wfs_sb *sb) {
+  off_t inode_offset = sb->i_blocks_ptr + inode_index * BLOCK_SIZE;
+
+  lseek(fd, inode_offset, SEEK_SET);
+  write(fd, inode, sizeof(struct wfs_inode));
+}
+
 void write_root_inode(int fd, struct wfs_sb *sb) {
   struct wfs_inode root = {
       .num = 0,
@@ -124,7 +130,7 @@ void write_root_inode(int fd, struct wfs_sb *sb) {
       .ctim = time(NULL),
   };
 
-  write_inode(fd, &root, 0, sb);
+  write_inode_to_file(fd, &root, 0, sb);
 }
 
 int initialize_disk(const char *disk_file, size_t inode_count,
@@ -149,5 +155,17 @@ int initialize_disk(const char *disk_file, size_t inode_count,
   write_root_inode(fd, &sb);
 
   close(fd);
+  return 0;
+}
+
+int split_path(const char *path, char *parent_path, char *dir_name) {
+  const char *last_slash = strrchr(path, '/');
+  if (last_slash == NULL) {
+    return -1;
+  }
+  size_t parent_len = last_slash - path;
+  strncpy(parent_path, path, parent_len);
+  parent_path[parent_len] = '\0';
+  strncpy(dir_name, last_slash + 1, MAX_NAME);
   return 0;
 }
