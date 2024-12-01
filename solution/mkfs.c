@@ -8,10 +8,11 @@
 
 int main(int argc, char *argv[]) {
   int raid_mode = -1, inode_count = 0, data_block_count = 0;
-  char **disk_files = NULL;
+  char **disk_files = NULL; // Array of disk file names.
   int disk_count = 0;
 
   for (int i = 1; i < argc; i++) {
+    // Set raid mode
     if (strcmp(argv[i], "-r") == 0) {
       if (i + 1 < argc) {
         if (strcmp(argv[i + 1], "0") == 0) {
@@ -22,7 +23,7 @@ int main(int argc, char *argv[]) {
           raid_mode = 2;
         } else {
           // fprintf(stderr, "Unsupported RAID mode: %s\n", argv[i + 1]);
-          return 1;
+          return 1; // toask: Why are we using different return codes here? 1 instead of -1 (Is it to signal different errors?)
         }
         i++;
       } else {
@@ -78,8 +79,8 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  data_block_count = (data_block_count + 31) & ~31;
-  inode_count = (inode_count + 31) & ~31;
+  data_block_count = (data_block_count + 31) & ~31; // Round to nearest multiple of 32
+  inode_count = (inode_count + 31) & ~31; // Round to nearest multiple of 32
 
   size_t required_size = calculate_required_size(inode_count, data_block_count);
 

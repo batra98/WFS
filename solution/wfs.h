@@ -9,8 +9,8 @@
 #define MAX_NAME (28)
 
 #define D_BLOCK (6)
-#define IND_BLOCK (D_BLOCK + 1)
-#define N_BLOCKS (IND_BLOCK + 1)
+#define IND_BLOCK (D_BLOCK + 1) // Single indirect data block
+#define N_BLOCKS (IND_BLOCK + 1) // Total data blocks
 #define PATH_MAX 4096
 /*
   The fields in the superblock should reflect the structure of the filesystem.

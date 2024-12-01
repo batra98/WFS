@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 #define ALIGN_TO_BLOCK(offset)                                                 \
-  (((offset) + BLOCK_SIZE - 1) / BLOCK_SIZE * BLOCK_SIZE)
+  ((((offset) + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE)
 
 size_t round_up_to_power_of_2(size_t x) {
   if (x == 0)
@@ -25,6 +25,7 @@ size_t round_up_to_power_of_2(size_t x) {
   return x + 1;
 }
 
+// Calculate size of (superblock + bitmaps + inode blocks + data blocks) in bytes
 size_t calculate_required_size(size_t inode_count, size_t data_block_count) {
   size_t sb_size = sizeof(struct wfs_sb);
   size_t i_bitmap_size = (inode_count + 7) / 8;
@@ -47,9 +48,7 @@ size_t calculate_required_size(size_t inode_count, size_t data_block_count) {
   return current_offset;
 }
 
-struct wfs_sb write_superblock(int fd, size_t inode_count,
-                               size_t data_block_count, int raid_mode,
-                               int disk_index, int total_disks) {
+struct wfs_sb write_superblock(int fd, size_t inode_count, size_t data_block_count, int raid_mode, int disk_index, int total_disks) {
   size_t i_bitmap_size = (inode_count + 7) / 8;
   size_t d_bitmap_size = (data_block_count + 7) / 8;
   size_t inode_table_size = inode_count * BLOCK_SIZE;
@@ -87,9 +86,10 @@ void write_bitmaps(int fd, size_t inode_count, size_t data_block_count,
   size_t i_bitmap_size = (inode_count + 7) / 8;
   size_t d_bitmap_size = (data_block_count + 7) / 8;
 
-  char *bitmap = calloc(1, i_bitmap_size);
+  char *bitmap = calloc(1, i_bitmap_size); // Allocates all bits to 0
   bitmap[0] |= 1;
 
+  // Write inode bitmap
   lseek(fd, sb->i_bitmap_ptr, SEEK_SET);
   ssize_t bytes_written = write(fd, bitmap, i_bitmap_size);
   if (bytes_written != (ssize_t)i_bitmap_size) {
@@ -99,6 +99,7 @@ void write_bitmaps(int fd, size_t inode_count, size_t data_block_count,
   }
   free(bitmap);
 
+  // Write data bitmap
   bitmap = calloc(1, d_bitmap_size);
   lseek(fd, sb->d_bitmap_ptr, SEEK_SET);
   if (write(fd, bitmap, d_bitmap_size) != (ssize_t)d_bitmap_size) {
@@ -143,7 +144,7 @@ int initialize_disk(const char *disk_file, size_t inode_count,
   }
 
   off_t disk_size = lseek(fd, 0, SEEK_END);
-  if (disk_size < required_size) {
+  if (disk_size < required_size) { // Also handles the case when disk_size = -1
     // fprintf(stderr, "Disk %s is too small for the filesystem\n", disk_file);
     close(fd);
     return -1;
