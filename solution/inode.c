@@ -74,7 +74,7 @@ int find_dentry_in_inode(int parent_inode_num, const char *name) {
 }
 
 int get_inode_index(const char *path) {
-  if (strcmp(path, "/") == 0) {
+  if (strcmp(path, "/") == NULL) {
     return 0;
   }
 
