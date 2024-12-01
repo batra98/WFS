@@ -58,49 +58,51 @@ int open_disk(const char *path) {
   return 0;
 }
 
-/*int wfs_mkdir(const char *path, mode_t mode) {
+int wfs_mkdir(const char *path, mode_t mode) {
+  printf("Entering wfs_mkdir: path = %s\n", path);
+
   char parent_path[PATH_MAX];
   char dirname[MAX_NAME];
   split_path(path, parent_path, dirname);
+  printf("Split path: parent = %s, dirname = %s\n", parent_path, dirname);
 
   int parent_inode_num = get_inode_index(parent_path);
+  printf("Parent inode number: %d\n", parent_inode_num);
   if (parent_inode_num == -ENOENT) {
+    printf("Parent directory not found: %s\n", parent_path);
     return -ENOENT;
   }
 
   struct wfs_inode parent_inode;
-  read_inode(disk_fd, &parent_inode, parent_inode_num, &sb);
+  read_inode(&parent_inode, parent_inode_num);
+  printf("Read parent inode: mode = %o, nlinks = %d, size = %ld\n",
+         parent_inode.mode, parent_inode.nlinks, parent_inode.size);
 
   if (!S_ISDIR(parent_inode.mode)) {
+    printf("Parent is not a directory: %s\n", parent_path);
     return -ENOTDIR;
   }
 
-  struct wfs_dentry dentry;
-  int dir_exists = 0;
+  struct wfs_dentry *dentry;
   for (int i = 0; i < N_BLOCKS && parent_inode.blocks[i] != 0; i++) {
-    off_t block_offset = parent_inode.blocks[i] * BLOCK_SIZE;
-    for (off_t entry_offset = 0; entry_offset < BLOCK_SIZE;
-         entry_offset += sizeof(struct wfs_dentry)) {
-      if (pread(disk_fd, &dentry, sizeof(struct wfs_dentry),
-                block_offset + entry_offset) != sizeof(struct wfs_dentry)) {
-        perror("Failed to read directory entry");
-        return -EIO;
-      }
-      if (dentry.num != -1 && strcmp(dentry.name, dirname) == 0) {
-        dir_exists = 1;
-        break;
+    off_t block_offset = sb.d_blocks_ptr + parent_inode.blocks[i] * BLOCK_SIZE;
+    printf("Checking block %d at offset %ld\n", i, block_offset);
+    dentry = (struct wfs_dentry *)((char *)disk_mmap + block_offset);
+
+    for (int j = 0; j < BLOCK_SIZE / sizeof(struct wfs_dentry); j++) {
+      if (dentry[j].num != -1 && strcmp(dentry[j].name, dirname) == 0) {
+        printf("Directory already exists: %s\n", path);
+        return -EEXIST;
       }
     }
   }
 
-  if (dir_exists) {
-    return -EEXIST;
+  int inode_num = allocate_free_inode();
+  if (inode_num < 0) {
+    printf("Failed to allocate inode for directory: %s\n", path);
+    return inode_num; // Returns -ENOSPC if no space is available
   }
-
-  int inode_num = allocate_free_inode(disk_fd, &sb);
-  if (inode_num == -ENOSPC) {
-    return -ENOSPC;
-  }
+  printf("Allocated new inode for directory: inode_num = %d\n", inode_num);
 
   struct wfs_inode new_inode = {
       .mode = mode | S_IFDIR,
@@ -110,28 +112,83 @@ int open_disk(const char *path) {
       .mtim = time(NULL),
       .ctim = time(NULL),
   };
+  printf(
+      "Initialized new directory inode: mode = %o, nlinks = %d, size = %ld\n",
+      new_inode.mode, new_inode.nlinks, new_inode.size);
 
-  write_inode(disk_fd, &new_inode, inode_num, &sb);
+  int block_num = allocate_free_data_block();
+  if (block_num < 0) {
+    printf("Failed to allocate data block for directory: %s\n", path);
+    return block_num; // Returns -ENOSPC if no space is available
+  }
+  new_inode.blocks[0] = block_num;
+  printf("Allocated data block for directory: block_num = %d\n", block_num);
 
-  struct wfs_dentry new_dentry = {
-      .num = inode_num,
-      .name = {0},
-  };
+  printf("Writing new inode to table: inode_num = %d\n", inode_num);
+  write_inode(&new_inode, inode_num);
 
-  strncpy(new_dentry.name, ".", MAX_NAME);
-  add_dentry_to_dir(&parent_inode, &new_dentry);
+  struct wfs_dentry *new_dir_block =
+      (struct wfs_dentry *)((char *)disk_mmap + sb.d_blocks_ptr +
+                            block_num * BLOCK_SIZE);
+  strncpy(new_dir_block[0].name, ".", MAX_NAME);
+  new_dir_block[0].num = inode_num;
+  printf("Created '.' entry in new directory: num = %d\n",
+         new_dir_block[0].num);
 
-  struct wfs_inode dir_inode;
-  read_inode(disk_fd, &dir_inode, inode_num, &sb);
-  struct wfs_dentry dotdot_dentry = {
-      .num = parent_inode_num,
-      .name = {0},
-  };
-  strncpy(dotdot_dentry.name, "..", MAX_NAME);
-  add_dentry_to_dir(&dir_inode, &dotdot_dentry);
+  strncpy(new_dir_block[1].name, "..", MAX_NAME);
+  new_dir_block[1].num = parent_inode_num;
+  printf("Created '..' entry in new directory: num = %d\n",
+         new_dir_block[1].num);
 
+  for (int i = 2; i < BLOCK_SIZE / sizeof(struct wfs_dentry); i++) {
+    new_dir_block[i].num = -1;
+  }
+
+  int parent_block_num = -1;
+
+  for (int i = 0; i < N_BLOCKS; i++) {
+    if (parent_inode.blocks[i] == 0) {
+      parent_block_num = allocate_free_data_block();
+      if (parent_block_num < 0) {
+        printf("Failed to allocate data block for parent directory: %s\n",
+               parent_path);
+        return parent_block_num;
+      }
+      parent_inode.blocks[i] = parent_block_num;
+      printf("Allocated new data block for parent directory: "
+             "parent_block_num = %d\n",
+             parent_block_num);
+      break;
+    } else {
+      struct wfs_dentry *parent_dir_block =
+          (struct wfs_dentry *)((char *)disk_mmap + sb.d_blocks_ptr +
+                                parent_inode.blocks[i] * BLOCK_SIZE);
+      for (int j = 0; j < BLOCK_SIZE / sizeof(struct wfs_dentry); j++) {
+        if (parent_dir_block[j].num == -1) {
+          parent_dir_block[j].num = inode_num;
+          strncpy(parent_dir_block[j].name, dirname, MAX_NAME);
+          printf("Added new directory entry to parent: %s\n", dirname);
+          write_inode(&parent_inode, parent_inode_num);
+          return 0;
+        }
+      }
+    }
+  }
+
+  if (parent_block_num != -1) {
+    struct wfs_dentry *parent_dir_block =
+        (struct wfs_dentry *)((char *)disk_mmap + sb.d_blocks_ptr +
+                              parent_block_num * BLOCK_SIZE);
+    parent_dir_block[0].num = inode_num;
+    strncpy(parent_dir_block[0].name, dirname, MAX_NAME);
+    printf("Adding new directory entry to allocated parent block: %s\n",
+           dirname);
+    write_inode(&parent_inode, parent_inode_num);
+  }
+
+  printf("Directory created successfully: %s\n", path);
   return 0;
-}*/
+}
 
 int wfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                 off_t offset, struct fuse_file_info *fi) {
@@ -223,6 +280,7 @@ int wfs_getattr(const char *path, struct stat *stbuf) {
 static struct fuse_operations ops = {
     .getattr = wfs_getattr,
     .readdir = wfs_readdir,
+    .mkdir = wfs_mkdir,
 };
 
 void print_arguments(int argc, char *argv[]) {

@@ -130,6 +130,10 @@ void write_root_inode(int fd, struct wfs_sb *sb) {
       .ctim = time(NULL),
   };
 
+  for (int i = 0; i < N_BLOCKS; i++) {
+    root.blocks[i] = 0;
+  }
+
   write_inode_to_file(fd, &root, 0, sb);
 }
 
@@ -160,9 +164,13 @@ int initialize_disk(const char *disk_file, size_t inode_count,
 
 int split_path(const char *path, char *parent_path, char *dir_name) {
   const char *last_slash = strrchr(path, '/');
-  if (last_slash == NULL) {
-    return -1;
+  if (last_slash == NULL || last_slash == path) {
+    parent_path[0] = '/';
+    parent_path[1] = '\0';
+    strncpy(dir_name, last_slash + 1, MAX_NAME);
+    return 0;
   }
+
   size_t parent_len = last_slash - path;
   strncpy(parent_path, path, parent_len);
   parent_path[parent_len] = '\0';

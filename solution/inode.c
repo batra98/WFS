@@ -1,6 +1,7 @@
 #include "globals.h"
 #include "wfs.h"
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -8,7 +9,7 @@
 #define INODE_OFFSET(index) (sb.i_blocks_ptr + (index) * BLOCK_SIZE)
 #define INODE_BITMAP_OFFSET sb.i_bitmap_ptr
 #define DENTRY_OFFSET(block, index)                                            \
-  ((block) * BLOCK_SIZE + (index) * sizeof(struct wfs_dentry))
+  (sb.d_blocks_ptr + (block) * BLOCK_SIZE + (index) * sizeof(struct wfs_dentry))
 
 void read_inode(struct wfs_inode *inode, size_t inode_index) {
   off_t inode_offset = INODE_OFFSET(inode_index);
@@ -50,8 +51,13 @@ int allocate_free_inode() {
 }
 
 int find_dentry_in_inode(int parent_inode_num, const char *name) {
+  printf("Entering find_dentry_in_inode: parent_inode_num = %d, name = %s\n",
+         parent_inode_num, name);
+
   struct wfs_inode parent_inode;
   read_inode(&parent_inode, parent_inode_num);
+  printf("Read parent inode: mode = %o, nlinks = %d, size = %ld\n",
+         parent_inode.mode, parent_inode.nlinks, parent_inode.size);
 
   for (int i = 0; i < N_BLOCKS; i++) {
     if (parent_inode.blocks[i] == 0) {
@@ -59,17 +65,25 @@ int find_dentry_in_inode(int parent_inode_num, const char *name) {
     }
 
     size_t num_entries = BLOCK_SIZE / sizeof(struct wfs_dentry);
+    printf("Checking block %d with %zu entries\n", i, num_entries);
+
     for (size_t j = 0; j < num_entries; j++) {
       struct wfs_dentry entry;
       off_t offset = DENTRY_OFFSET(parent_inode.blocks[i], j);
+      printf("Reading entry %zu at offset %ld\n", j, offset);
       memcpy(&entry, (char *)disk_mmap + offset, sizeof(struct wfs_dentry));
 
+      printf("Entry %zu: name = %s, num = %d\n", j, entry.name, entry.num);
+
       if (strcmp(entry.name, name) == 0) {
+        printf("Found directory entry: name = %s, num = %d\n", entry.name,
+               entry.num);
         return entry.num;
       }
     }
   }
 
+  printf("Directory entry not found: name = %s\n", name);
   return -ENOENT;
 }
 
