@@ -1,4 +1,5 @@
 #include "globals.h"
+#include "raid.h"
 #include "wfs.h"
 #include <errno.h>
 #include <stdio.h>
@@ -6,31 +7,52 @@
 #include <string.h>
 #include <unistd.h>
 
-#define INODE_OFFSET(index) (sb.i_blocks_ptr + (index) * BLOCK_SIZE)
-#define INODE_BITMAP_OFFSET sb.i_bitmap_ptr
-#define DENTRY_OFFSET(block, index)                                            \
-  (sb.d_blocks_ptr + (block) * BLOCK_SIZE + (index) * sizeof(struct wfs_dentry))
+void *get_disk_mmap(size_t offset) {
+  int disk_index = get_raid_disk(offset / BLOCK_SIZE);
+  if (disk_index < 0) {
+    return NULL;
+  }
+  return (char *)wfs_ctx.disk_mmaps[disk_index] + offset;
+}
 
 void read_inode(struct wfs_inode *inode, size_t inode_index) {
   off_t inode_offset = INODE_OFFSET(inode_index);
-  memcpy(inode, (char *)disk_mmap + inode_offset, sizeof(struct wfs_inode));
+  void *disk_ptr = get_disk_mmap(inode_offset);
+  if (disk_ptr == NULL) {
+    perror("Error accessing disk for inode read");
+    return;
+  }
+  memcpy(inode, disk_ptr, sizeof(struct wfs_inode));
 }
 
 void write_inode(const struct wfs_inode *inode, size_t inode_index) {
   off_t inode_offset = INODE_OFFSET(inode_index);
-  memcpy((char *)disk_mmap + inode_offset, inode, sizeof(struct wfs_inode));
+  void *disk_ptr = get_disk_mmap(inode_offset);
+  if (disk_ptr == NULL) {
+    perror("Error accessing disk for inode write");
+    return;
+  }
+  memcpy(disk_ptr, inode, sizeof(struct wfs_inode));
 }
 
 void read_inode_bitmap(char *inode_bitmap) {
   size_t inode_bitmap_size = (sb.num_inodes + 7) / 8;
-  memcpy(inode_bitmap, (char *)disk_mmap + INODE_BITMAP_OFFSET,
-         inode_bitmap_size);
+  void *disk_ptr = get_disk_mmap(INODE_BITMAP_OFFSET);
+  if (disk_ptr == NULL) {
+    perror("Error accessing disk for inode bitmap read");
+    return;
+  }
+  memcpy(inode_bitmap, disk_ptr, inode_bitmap_size);
 }
 
 void write_inode_bitmap(const char *inode_bitmap) {
   size_t inode_bitmap_size = (sb.num_inodes + 7) / 8;
-  memcpy((char *)disk_mmap + INODE_BITMAP_OFFSET, inode_bitmap,
-         inode_bitmap_size);
+  void *disk_ptr = get_disk_mmap(INODE_BITMAP_OFFSET);
+  if (disk_ptr == NULL) {
+    perror("Error accessing disk for inode bitmap write");
+    return;
+  }
+  memcpy(disk_ptr, inode_bitmap, inode_bitmap_size);
 }
 
 int allocate_free_inode() {
@@ -71,7 +93,12 @@ int find_dentry_in_inode(int parent_inode_num, const char *name) {
       struct wfs_dentry entry;
       off_t offset = DENTRY_OFFSET(parent_inode.blocks[i], j);
       printf("Reading entry %zu at offset %ld\n", j, offset);
-      memcpy(&entry, (char *)disk_mmap + offset, sizeof(struct wfs_dentry));
+      void *disk_ptr = get_disk_mmap(offset);
+      if (disk_ptr == NULL) {
+        perror("Error accessing disk for dentry read");
+        continue;
+      }
+      memcpy(&entry, disk_ptr, sizeof(struct wfs_dentry));
 
       printf("Entry %zu: name = %s, num = %d\n", j, entry.name, entry.num);
 

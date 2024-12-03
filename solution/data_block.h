@@ -1,8 +1,8 @@
 #ifndef DATA_BLOCK_H
 #define DATA_BLOCK_H
 
+#include "wfs.h"
 #include <stddef.h>
-
 void read_data_block(void *block, size_t block_index);
 void write_data_block(const void *block, size_t block_index);
 void read_data_block_bitmap(char *data_block_bitmap);
