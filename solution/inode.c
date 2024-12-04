@@ -82,7 +82,7 @@ int find_dentry_in_inode(int parent_inode_num, const char *name) {
          parent_inode.mode, parent_inode.nlinks, parent_inode.size);
 
   for (int i = 0; i < N_BLOCKS; i++) {
-    if (parent_inode.blocks[i] == 0) {
+    if (parent_inode.blocks[i] == -1) {
       continue;
     }
 

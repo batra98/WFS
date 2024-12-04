@@ -131,7 +131,7 @@ void write_root_inode(int fd, struct wfs_sb *sb) {
   };
 
   for (int i = 0; i < N_BLOCKS; i++) {
-    root.blocks[i] = 0;
+    root.blocks[i] = -1;
   }
 
   write_inode_to_file(fd, &root, 0, sb);

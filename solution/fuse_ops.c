@@ -37,7 +37,7 @@ int wfs_mkdir(const char *path, mode_t mode) {
   }
 
   struct wfs_dentry *dentry;
-  for (int i = 0; i < N_BLOCKS && parent_inode.blocks[i] != 0; i++) {
+  for (int i = 0; i < N_BLOCKS && parent_inode.blocks[i] != -1; i++) {
     int disk_index = get_raid_disk(parent_inode.blocks[i] / BLOCK_SIZE);
     if (disk_index < 0) {
       printf("Error: Unable to get disk index for parent directory block %d\n",
@@ -74,49 +74,20 @@ int wfs_mkdir(const char *path, mode_t mode) {
       .mtim = time(NULL),
       .ctim = time(NULL),
   };
+  for (int i = 0; i < N_BLOCKS; i++) {
+    new_inode.blocks[i] = -1;
+  }
   printf(
       "Initialized new directory inode: mode = %o, nlinks = %d, size = %ld\n",
       new_inode.mode, new_inode.nlinks, new_inode.size);
 
-  int block_num = allocate_free_data_block();
-  if (block_num < 0) {
-    printf("Failed to allocate data block for directory: %s\n", path);
-    return block_num;
-  }
-  new_inode.blocks[0] = block_num;
-  printf("Allocated data block for directory: block_num = %d\n", block_num);
-
   write_inode(&new_inode, inode_num);
   printf("Writing new inode to table: inode_num = %d\n", inode_num);
 
-  int disk_index = get_raid_disk(block_num / BLOCK_SIZE);
-  if (disk_index < 0) {
-    printf("Error: Unable to get disk index for new directory block\n");
-    return -EIO;
-  }
-
-  off_t block_offset = DATA_BLOCK_OFFSET(block_num);
-  struct wfs_dentry *new_dir_block =
-      (struct wfs_dentry *)((char *)wfs_ctx.disk_mmaps[disk_index] +
-                            block_offset);
-
-  strncpy(new_dir_block[0].name, ".", MAX_NAME);
-  new_dir_block[0].num = inode_num;
-  printf("Created '.' entry in new directory: num = %d\n",
-         new_dir_block[0].num);
-
-  strncpy(new_dir_block[1].name, "..", MAX_NAME);
-  new_dir_block[1].num = parent_inode_num;
-  printf("Created '..' entry in new directory: num = %d\n",
-         new_dir_block[1].num);
-
-  for (int i = 2; i < BLOCK_SIZE / sizeof(struct wfs_dentry); i++) {
-    new_dir_block[i].num = -1;
-  }
-
+  int disk_index;
   int parent_block_num = -1;
   for (int i = 0; i < N_BLOCKS; i++) {
-    if (parent_inode.blocks[i] == 0) {
+    if (parent_inode.blocks[i] == -1) {
       parent_block_num = allocate_free_data_block();
       if (parent_block_num < 0) {
         printf("Failed to allocate data block for parent directory: %s\n",
@@ -202,7 +173,7 @@ int wfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
   printf("Directory inode read successfully: mode = %o, size = %ld\n",
          dir_inode.mode, dir_inode.size);
 
-  for (int i = 0; i < N_BLOCKS && dir_inode.blocks[i] != 0; i++) {
+  for (int i = 0; i < N_BLOCKS && dir_inode.blocks[i] != -1; i++) {
     int disk_index = get_raid_disk(dir_inode.blocks[i] / BLOCK_SIZE);
     if (disk_index < 0) {
       printf("Error: Unable to get disk index for block %ld\n",

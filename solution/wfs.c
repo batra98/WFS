@@ -189,12 +189,5 @@ int main(int argc, char *argv[]) {
   print_arguments(fuse_argc, fuse_args);
   int ret = fuse_main(fuse_argc, fuse_args, &ops, NULL);
 
-  for (int i = 0; i < num_disks; i++) {
-    munmap(disk_mmaps[i], disk_sizes[i]);
-  }
-  free(disk_mmaps);
-  free(disk_sizes);
-  free(disk_paths);
-
   return ret;
 }
