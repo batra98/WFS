@@ -23,28 +23,24 @@ void read_inode(struct wfs_inode *inode, size_t inode_index) {
 }
 
 void write_inode(const struct wfs_inode *inode, size_t inode_index) {
-  off_t inode_offset = INODE_OFFSET(inode_index);
-  void *disk_ptr = get_disk_mmap(inode_offset);
-  if (disk_ptr == NULL) {
-    perror("Error accessing disk for inode write");
-    return;
-  }
-  memcpy(disk_ptr, inode, sizeof(struct wfs_inode));
+  off_t offset = INODE_OFFSET(inode_index);
+  int disk_index = get_raid_disk(offset / BLOCK_SIZE);
+  void *inode_offset = (char *)wfs_ctx.disk_mmaps[disk_index] + offset;
+  memcpy(inode_offset, inode, sizeof(struct wfs_inode));
 
   if (sb.raid_mode == RAID_1) {
     fprintf(stderr, "replicating inodes\n");
-    replicate(inode, inode_offset, sizeof(struct wfs_inode), 0);
+    replicate(inode, offset, sizeof(struct wfs_inode), 0);
   }
 }
 
 void read_inode_bitmap(char *inode_bitmap) {
   size_t inode_bitmap_size = (sb.num_inodes + 7) / 8;
-  void *disk_ptr = get_disk_mmap(INODE_BITMAP_OFFSET);
-  if (disk_ptr == NULL) {
-    perror("Error accessing disk for inode bitmap read");
-    return;
-  }
-  memcpy(inode_bitmap, disk_ptr, inode_bitmap_size);
+  int disk_index = get_raid_disk(INODE_BITMAP_OFFSET / BLOCK_SIZE);
+
+  memcpy(inode_bitmap,
+         (char *)wfs_ctx.disk_mmaps[disk_index] + INODE_BITMAP_OFFSET,
+         inode_bitmap_size);
 }
 
 void write_inode_bitmap(const char *inode_bitmap) {

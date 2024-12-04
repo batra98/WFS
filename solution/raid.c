@@ -16,7 +16,7 @@ void replicate(const void *block, size_t block_offset, size_t block_size,
                int primary_disk_index) {
   for (int i = 0; i < wfs_ctx.num_disks; i++) {
     if (i == primary_disk_index) {
-      continue; // Skip the primary disk
+      continue;
     }
 
     char *mirror_disk_mmap = (char *)wfs_ctx.disk_mmaps[i];
@@ -25,8 +25,7 @@ void replicate(const void *block, size_t block_offset, size_t block_size,
       continue;
     }
 
-    memcpy(mirror_disk_mmap, wfs_ctx.disk_mmaps[primary_disk_index],
-           wfs_ctx.disk_sizes[i]);
+    memcpy(mirror_disk_mmap + block_offset, block, block_size);
     printf("Replicated block at offset %zu to disk %d.\n", block_offset, i);
   }
 }

@@ -30,7 +30,7 @@ void write_data_block(const void *block, size_t block_index) {
     return;
   }
 
-  size_t block_offset = (block_index % BLOCK_SIZE) * BLOCK_SIZE;
+  size_t block_offset = DATA_BLOCK_OFFSET(block_index);
   char *disk_mmap = (char *)wfs_ctx.disk_mmaps[disk_index];
   memcpy(disk_mmap + block_offset, block, BLOCK_SIZE);
 
@@ -98,53 +98,58 @@ void free_data_block(int block_index) {
 
 int add_dentry_to_parent(struct wfs_inode *parent_inode, int parent_inode_num,
                          const char *dirname, int inode_num) {
-  struct wfs_dentry new_entry = {
-      .num = inode_num,
-  };
-  strncpy(new_entry.name, dirname, MAX_NAME);
-
+  int disk_index;
+  int parent_block_num = -1;
   for (int i = 0; i < N_BLOCKS; i++) {
     if (parent_inode->blocks[i] == -1) {
-      // Allocate a new data block for the parent directory
-      int block_num = allocate_free_data_block();
-      if (block_num < 0) {
-        return block_num;
+      parent_block_num = allocate_free_data_block();
+      if (parent_block_num < 0) {
+        return parent_block_num;
       }
-      parent_inode->blocks[i] = block_num;
+      parent_inode->blocks[i] = parent_block_num;
+      printf("Allocated new data block for parent directory: parent_block_num "
+             "= %d\n",
+             parent_block_num);
 
-      // Initialize the block
-      struct wfs_dentry block[BLOCK_SIZE / sizeof(struct wfs_dentry)] = {0};
-      block[0] = new_entry;
+      struct wfs_dentry new_block[BLOCK_SIZE / sizeof(struct wfs_dentry)];
+      memset(new_block, -1, sizeof(new_block));
+      new_block[0].num = inode_num;
+      strncpy(new_block[0].name, dirname, MAX_NAME);
 
-      write_data_block(block, block_num);
-      break;
+      write_data_block(new_block, parent_block_num);
+      write_inode(parent_inode, parent_inode_num);
+
+      printf("Added new directory entry to newly allocated block: %s\n",
+             dirname);
+      return 0;
     }
 
-    // Look for an empty dentry slot in the current block
-    int disk_index = get_raid_disk(parent_inode->blocks[i] / BLOCK_SIZE);
+    disk_index = get_raid_disk(parent_inode->blocks[i] / BLOCK_SIZE);
     if (disk_index < 0) {
+      printf("Error: Unable to get disk index for parent directory block %d\n",
+             i);
       return -EIO;
     }
 
-    size_t block_offset =
-        sb.d_blocks_ptr + parent_inode->blocks[i] * BLOCK_SIZE;
-    struct wfs_dentry *dentries =
+    struct wfs_dentry *parent_dir_block =
         (struct wfs_dentry *)((char *)wfs_ctx.disk_mmaps[disk_index] +
-                              block_offset);
-
+                              DATA_BLOCK_OFFSET(parent_inode->blocks[i]));
     for (int j = 0; j < BLOCK_SIZE / sizeof(struct wfs_dentry); j++) {
-      if (dentries[j].num == -1) {
-        dentries[j] = new_entry;
-        break;
+      if (parent_dir_block[j].num == -1) {
+        parent_dir_block[j].num = inode_num;
+        strncpy(parent_dir_block[j].name, dirname, MAX_NAME);
+
+        write_data_block(parent_dir_block, parent_inode->blocks[i]);
+        write_inode(parent_inode, parent_inode_num);
+
+        printf("Added new directory entry to parent: %s\n", dirname);
+        return 0;
       }
     }
   }
 
-  parent_inode->size += sizeof(struct wfs_dentry);
-  parent_inode->nlinks++;
-  write_inode(parent_inode, parent_inode_num);
-
-  return 0;
+  printf("Error: No space left to add directory entry\n");
+  return -ENOSPC;
 }
 
 int check_duplicate_dentry(const struct wfs_inode *parent_inode,
@@ -157,16 +162,15 @@ int check_duplicate_dentry(const struct wfs_inode *parent_inode,
       return -EIO;
     }
 
-    size_t block_offset =
-        sb.d_blocks_ptr + parent_inode->blocks[i] * BLOCK_SIZE;
+    size_t block_offset = DATA_BLOCK_OFFSET(parent_inode->blocks[i]);
     dentry = (struct wfs_dentry *)((char *)wfs_ctx.disk_mmaps[disk_index] +
                                    block_offset);
 
     for (int j = 0; j < BLOCK_SIZE / sizeof(struct wfs_dentry); j++) {
       if (dentry[j].num != -1 && strcmp(dentry[j].name, dirname) == 0) {
-        return 0; // Duplicate found
+        return 0;
       }
     }
   }
-  return -ENOENT; // No duplicate
+  return -ENOENT;
 }

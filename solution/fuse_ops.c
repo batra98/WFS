@@ -1,4 +1,3 @@
-#include <unistd.h>
 #define FUSE_USE_VERSION 30
 
 #include "data_block.h"
@@ -11,6 +10,7 @@
 #include <fuse.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 int wfs_mkdir(const char *path, mode_t mode) {
   printf("Entering wfs_mkdir: path = %s\n", path);
@@ -21,7 +21,6 @@ int wfs_mkdir(const char *path, mode_t mode) {
   printf("Split path: parent = %s, dirname = %s\n", parent_path, dirname);
 
   int parent_inode_num = get_inode_index(parent_path);
-  printf("Parent inode number: %d\n", parent_inode_num);
   if (parent_inode_num == -ENOENT) {
     printf("Parent directory not found: %s\n", parent_path);
     return -ENOENT;
@@ -29,127 +28,27 @@ int wfs_mkdir(const char *path, mode_t mode) {
 
   struct wfs_inode parent_inode;
   read_inode(&parent_inode, parent_inode_num);
-  printf("Read parent inode: mode = %o, nlinks = %d, size = %ld\n",
-         parent_inode.mode, parent_inode.nlinks, parent_inode.size);
 
   if (!S_ISDIR(parent_inode.mode)) {
     printf("Parent is not a directory: %s\n", parent_path);
     return -ENOTDIR;
   }
 
-  struct wfs_dentry *dentry;
-  for (int i = 0; i < N_BLOCKS && parent_inode.blocks[i] != -1; i++) {
-    int disk_index = get_raid_disk(parent_inode.blocks[i] / BLOCK_SIZE);
-    if (disk_index < 0) {
-      printf("Error: Unable to get disk index for parent directory block %d\n",
-             i);
-      return -EIO;
-    }
-
-    off_t block_offset = sb.d_blocks_ptr + parent_inode.blocks[i] * BLOCK_SIZE;
-    printf("Checking block %d at offset %ld on disk %d\n", i, block_offset,
-           disk_index);
-    dentry = (struct wfs_dentry *)((char *)wfs_ctx.disk_mmaps[disk_index] +
-                                   block_offset);
-
-    for (int j = 0; j < BLOCK_SIZE / sizeof(struct wfs_dentry); j++) {
-      if (dentry[j].num != -1 && strcmp(dentry[j].name, dirname) == 0) {
-        printf("Directory already exists: %s\n", path);
-        return -EEXIST;
-      }
-    }
+  if (check_duplicate_dentry(&parent_inode, dirname) == 0) {
+    printf("Directory already exists: %s\n", path);
+    return -EEXIST;
   }
 
-  int inode_num = allocate_free_inode();
+  int inode_num = allocate_and_init_inode(mode, S_IFDIR);
   if (inode_num < 0) {
     printf("Failed to allocate inode for directory: %s\n", path);
     return inode_num;
   }
-  printf("Allocated new inode for directory: inode_num = %d\n", inode_num);
 
-  struct wfs_inode new_inode = {
-      .num = inode_num,
-      .mode = mode | S_IFDIR,
-      .nlinks = 2,
-      .size = 0,
-      .uid = getuid(),
-      .gid = getgid(),
-      .atim = time(NULL),
-      .mtim = time(NULL),
-      .ctim = time(NULL),
-  };
-  for (int i = 0; i < N_BLOCKS; i++) {
-    new_inode.blocks[i] = -1;
-  }
-  printf(
-      "Initialized new directory inode: mode = %o, nlinks = %d, size = %ld\n",
-      new_inode.mode, new_inode.nlinks, new_inode.size);
-
-  write_inode(&new_inode, inode_num);
-  printf("Writing new inode to table: inode_num = %d\n", inode_num);
-
-  int disk_index;
-  int parent_block_num = -1;
-  for (int i = 0; i < N_BLOCKS; i++) {
-    if (parent_inode.blocks[i] == -1) {
-      parent_block_num = allocate_free_data_block();
-      if (parent_block_num < 0) {
-        printf("Failed to allocate data block for parent directory: %s\n",
-               parent_path);
-        return parent_block_num;
-      }
-      parent_inode.blocks[i] = parent_block_num;
-      printf("Allocated new data block for parent directory: parent_block_num "
-             "= %d\n",
-             parent_block_num);
-      break;
-    }
-
-    disk_index = get_raid_disk(parent_inode.blocks[i] / BLOCK_SIZE);
-    if (disk_index < 0) {
-      printf("Error: Unable to get disk index for parent directory block %d\n",
-             i);
-      return -EIO;
-    }
-
-    struct wfs_dentry *parent_dir_block =
-        (struct wfs_dentry *)((char *)wfs_ctx.disk_mmaps[disk_index] +
-                              DATA_BLOCK_OFFSET(parent_inode.blocks[i]));
-    for (int j = 0; j < BLOCK_SIZE / sizeof(struct wfs_dentry); j++) {
-      if (parent_dir_block[j].num == -1) {
-        parent_dir_block[j].num = inode_num;
-        strncpy(parent_dir_block[j].name, dirname, MAX_NAME);
-        printf("Added new directory entry to parent: %s\n", dirname);
-        parent_inode.size += sizeof(struct wfs_dentry);
-        parent_inode.nlinks++;
-        write_inode(&parent_inode, parent_inode_num);
-        return 0;
-      }
-    }
-  }
-
-  if (parent_block_num != -1) {
-    disk_index = get_raid_disk(parent_block_num / BLOCK_SIZE);
-    if (disk_index < 0) {
-      printf(
-          "Error: Unable to get disk index for new parent directory block\n");
-      return -EIO;
-    }
-
-    struct wfs_dentry *parent_dir_block =
-        (struct wfs_dentry *)((char *)wfs_ctx.disk_mmaps[disk_index] +
-                              DATA_BLOCK_OFFSET(parent_block_num));
-    parent_dir_block[0].num = inode_num;
-    strncpy(parent_dir_block[0].name, dirname, MAX_NAME);
-
-    for (int j = 1; j < BLOCK_SIZE / sizeof(struct wfs_dentry); j++)
-      parent_dir_block[j].num = -1;
-
-    printf("Adding new directory entry to allocated parent block: %s\n",
-           dirname);
-    parent_inode.size += sizeof(struct wfs_dentry);
-    parent_inode.nlinks++;
-    write_inode(&parent_inode, parent_inode_num);
+  if (add_dentry_to_parent(&parent_inode, parent_inode_num, dirname,
+                           inode_num) < 0) {
+    printf("Failed to add directory entry: %s\n", dirname);
+    return -EIO;
   }
 
   printf("Directory created successfully: %s\n", path);
