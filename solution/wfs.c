@@ -29,8 +29,9 @@ static void print_usage(const char *progname) {
           "Ensure WFS is initialized using mkfs with RAID mode and disks.\n");
 }
 
-void initialize_wfs_context(void **disk_mmaps, int num_disks, int raid_mode) {
-  initialize_raid(disk_mmaps, num_disks, raid_mode);
+void initialize_wfs_context(void **disk_mmaps, int num_disks, int raid_mode,
+                            size_t *disk_sizes) {
+  initialize_raid(disk_mmaps, num_disks, raid_mode, disk_sizes);
 }
 
 static int parse_args(int argc, char *argv[], char ***disk_paths,
@@ -183,7 +184,7 @@ int main(int argc, char *argv[]) {
       "Loaded superblock: RAID mode = %d, num_inodes = %ld, num_blocks = %ld\n",
       sb.raid_mode, sb.num_inodes, sb.num_data_blocks);
 
-  initialize_wfs_context(disk_mmaps, num_disks, sb.raid_mode);
+  initialize_wfs_context(disk_mmaps, num_disks, sb.raid_mode, disk_sizes);
   printf("Starting FUSE with mount point: %s\n", mount_point);
 
   print_arguments(fuse_argc, fuse_args);
