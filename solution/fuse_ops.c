@@ -12,6 +12,58 @@
 #include <string.h>
 #include <unistd.h>
 
+int wfs_mknod(const char *path, mode_t mode, dev_t dev) {
+  printf("Entering wfs_mknod: path = %s\n", path);
+
+  char parent_path[PATH_MAX];
+  char filename[MAX_NAME];
+  split_path(path, parent_path, filename);
+  printf("Split path: parent = %s, filename = %s\n", parent_path, filename);
+
+  int parent_inode_num = get_inode_index(parent_path);
+  if (parent_inode_num == -ENOENT) {
+    printf("Parent directory not found: %s\n", parent_path);
+    return -ENOENT;
+  }
+
+  struct wfs_inode parent_inode;
+  read_inode(&parent_inode, parent_inode_num);
+
+  if (!S_ISDIR(parent_inode.mode)) {
+    printf("Parent is not a directory: %s\n", parent_path);
+    return -ENOTDIR;
+  }
+
+  if (check_duplicate_dentry(&parent_inode, filename) == 0) {
+    printf("File already exists: %s\n", path);
+    return -EEXIST;
+  }
+
+  int inode_num = allocate_and_init_inode(mode, S_IFREG);
+  if (inode_num < 0) {
+    printf("Failed to allocate inode for file: %s\n", path);
+    return inode_num;
+  }
+
+  /*// For special files, store the device information in the inode
+  if (S_ISCHR(mode) || S_ISBLK(mode)) {
+    struct wfs_inode new_inode;
+    read_inode(&new_inode, inode_num);
+    new_inode.dev = dev;
+    write_inode(&new_inode, inode_num);
+    printf("Stored device info for special file: %s\n", path);
+  }*/
+
+  if (add_dentry_to_parent(&parent_inode, parent_inode_num, filename,
+                           inode_num) < 0) {
+    printf("Failed to add file entry: %s\n", filename);
+    return -EIO;
+  }
+
+  printf("File created successfully: %s\n", path);
+  return 0;
+}
+
 int wfs_mkdir(const char *path, mode_t mode) {
   printf("Entering wfs_mkdir: path = %s\n", path);
 
@@ -153,4 +205,5 @@ struct fuse_operations ops = {
     .getattr = wfs_getattr,
     .readdir = wfs_readdir,
     .mkdir = wfs_mkdir,
+    .mknod = wfs_mknod,
 };

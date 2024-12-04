@@ -54,8 +54,8 @@ static int parse_args(int argc, char *argv[], char ***disk_paths,
     i++;
   }
 
-  if (*num_disks < 1) {
-    fprintf(stderr, "At least one disk must be provided.\n");
+  if (*num_disks < 2) {
+    fprintf(stderr, "At least two disk must be provided.\n");
     return -1;
   }
 

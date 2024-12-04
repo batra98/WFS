@@ -7,14 +7,6 @@
 #include <string.h>
 #include <unistd.h>
 
-void *get_disk_mmap(size_t offset) {
-  int disk_index = get_raid_disk(offset / BLOCK_SIZE);
-  if (disk_index < 0) {
-    return NULL;
-  }
-  return (char *)wfs_ctx.disk_mmaps[disk_index] + offset;
-}
-
 void read_inode(struct wfs_inode *inode, size_t inode_index) {
   off_t offset = INODE_OFFSET(inode_index);
   int disk_index = get_raid_disk(offset / BLOCK_SIZE);
@@ -30,7 +22,7 @@ void write_inode(const struct wfs_inode *inode, size_t inode_index) {
 
   if (sb.raid_mode == RAID_1) {
     fprintf(stderr, "replicating inodes\n");
-    replicate(inode, offset, sizeof(struct wfs_inode), 0);
+    replicate(inode, offset, sizeof(struct wfs_inode), disk_index);
   }
 }
 
@@ -45,14 +37,13 @@ void read_inode_bitmap(char *inode_bitmap) {
 
 void write_inode_bitmap(const char *inode_bitmap) {
   size_t inode_bitmap_size = (sb.num_inodes + 7) / 8;
-  void *disk_ptr = get_disk_mmap(INODE_BITMAP_OFFSET);
-  if (disk_ptr == NULL) {
-    perror("Error accessing disk for inode bitmap write");
-    return;
-  }
-  memcpy(disk_ptr, inode_bitmap, inode_bitmap_size);
+
+  int disk_index = get_raid_disk(INODE_BITMAP_OFFSET / BLOCK_SIZE);
+
+  memcpy((char *)wfs_ctx.disk_mmaps[disk_index] + INODE_BITMAP_OFFSET,
+         inode_bitmap, inode_bitmap_size);
   if (sb.raid_mode == RAID_1)
-    replicate(inode_bitmap, INODE_BITMAP_OFFSET, inode_bitmap_size, 0);
+    replicate(inode_bitmap, INODE_BITMAP_OFFSET, inode_bitmap_size, disk_index);
 }
 
 int allocate_free_inode() {
@@ -119,13 +110,10 @@ int find_dentry_in_inode(int parent_inode_num, const char *name) {
       struct wfs_dentry entry;
       off_t offset = DENTRY_OFFSET(parent_inode.blocks[i], j);
       printf("Reading entry %zu at offset %ld\n", j, offset);
-      void *disk_ptr = get_disk_mmap(offset);
-      if (disk_ptr == NULL) {
-        perror("Error accessing disk for dentry read");
-        continue;
-      }
-      memcpy(&entry, disk_ptr, sizeof(struct wfs_dentry));
 
+      int disk_index = get_raid_disk(offset);
+      memcpy(&entry, (char *)wfs_ctx.disk_mmaps[disk_index] + offset,
+             sizeof(struct wfs_dentry));
       printf("Entry %zu: name = %s, num = %d\n", j, entry.name, entry.num);
 
       if (strcmp(entry.name, name) == 0) {
