@@ -16,13 +16,10 @@ void *get_disk_mmap(size_t offset) {
 }
 
 void read_inode(struct wfs_inode *inode, size_t inode_index) {
-  off_t inode_offset = INODE_OFFSET(inode_index);
-  void *disk_ptr = get_disk_mmap(inode_offset);
-  if (disk_ptr == NULL) {
-    perror("Error accessing disk for inode read");
-    return;
-  }
-  memcpy(inode, disk_ptr, sizeof(struct wfs_inode));
+  off_t offset = INODE_OFFSET(inode_index);
+  int disk_index = get_raid_disk(offset / BLOCK_SIZE);
+  void *inode_offset = (char *)wfs_ctx.disk_mmaps[disk_index] + offset;
+  memcpy(inode, inode_offset, sizeof(struct wfs_inode));
 }
 
 void write_inode(const struct wfs_inode *inode, size_t inode_index) {
@@ -33,6 +30,11 @@ void write_inode(const struct wfs_inode *inode, size_t inode_index) {
     return;
   }
   memcpy(disk_ptr, inode, sizeof(struct wfs_inode));
+
+  if (sb.raid_mode == RAID_1) {
+    fprintf(stderr, "replicating inodes\n");
+    replicate(inode, inode_offset, sizeof(struct wfs_inode), 0);
+  }
 }
 
 void read_inode_bitmap(char *inode_bitmap) {
@@ -53,6 +55,8 @@ void write_inode_bitmap(const char *inode_bitmap) {
     return;
   }
   memcpy(disk_ptr, inode_bitmap, inode_bitmap_size);
+  if (sb.raid_mode == RAID_1)
+    replicate(inode_bitmap, INODE_BITMAP_OFFSET, inode_bitmap_size, 0);
 }
 
 int allocate_free_inode() {
@@ -70,6 +74,32 @@ int allocate_free_inode() {
   }
 
   return -ENOSPC;
+}
+
+int allocate_and_init_inode(mode_t mode, mode_t type_flag) {
+  int inode_num = allocate_free_inode();
+  if (inode_num < 0) {
+    return inode_num;
+  }
+
+  struct wfs_inode new_inode = {
+      .num = inode_num,
+      .mode = mode | type_flag,
+      .nlinks = (type_flag == S_IFDIR) ? 2 : 1,
+      .size = 0,
+      .uid = getuid(),
+      .gid = getgid(),
+      .atim = time(NULL),
+      .mtim = time(NULL),
+      .ctim = time(NULL),
+  };
+
+  for (int i = 0; i < N_BLOCKS; i++) {
+    new_inode.blocks[i] = -1;
+  }
+
+  write_inode(&new_inode, inode_num);
+  return inode_num;
 }
 
 int find_dentry_in_inode(int parent_inode_num, const char *name) {

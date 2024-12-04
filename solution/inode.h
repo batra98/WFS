@@ -12,5 +12,6 @@ void write_inode_bitmap(const char *inode_bitmap);
 int allocate_free_inode();
 int find_dentry_in_inode(int parent_inode_num, const char *name);
 int get_inode_index(const char *path);
+int allocate_and_init_inode(mode_t mode, mode_t type_flag);
 
 #endif

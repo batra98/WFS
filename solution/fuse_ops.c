@@ -1,3 +1,4 @@
+#include <unistd.h>
 #define FUSE_USE_VERSION 30
 
 #include "data_block.h"
@@ -67,9 +68,12 @@ int wfs_mkdir(const char *path, mode_t mode) {
   printf("Allocated new inode for directory: inode_num = %d\n", inode_num);
 
   struct wfs_inode new_inode = {
+      .num = inode_num,
       .mode = mode | S_IFDIR,
       .nlinks = 2,
-      .size = 2 * sizeof(struct wfs_dentry),
+      .size = 0,
+      .uid = getuid(),
+      .gid = getgid(),
       .atim = time(NULL),
       .mtim = time(NULL),
       .ctim = time(NULL),
@@ -116,6 +120,8 @@ int wfs_mkdir(const char *path, mode_t mode) {
         parent_dir_block[j].num = inode_num;
         strncpy(parent_dir_block[j].name, dirname, MAX_NAME);
         printf("Added new directory entry to parent: %s\n", dirname);
+        parent_inode.size += sizeof(struct wfs_dentry);
+        parent_inode.nlinks++;
         write_inode(&parent_inode, parent_inode_num);
         return 0;
       }
@@ -141,6 +147,8 @@ int wfs_mkdir(const char *path, mode_t mode) {
 
     printf("Adding new directory entry to allocated parent block: %s\n",
            dirname);
+    parent_inode.size += sizeof(struct wfs_dentry);
+    parent_inode.nlinks++;
     write_inode(&parent_inode, parent_inode_num);
   }
 
@@ -181,7 +189,7 @@ int wfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
       return -EIO;
     }
 
-    size_t block_offset = sb.d_blocks_ptr + (dir_inode.blocks[i] * BLOCK_SIZE);
+    size_t block_offset = DATA_BLOCK_OFFSET(dir_inode.blocks[i]);
     printf("Reading directory block: %ld (offset = %zu)\n", dir_inode.blocks[i],
            block_offset);
 

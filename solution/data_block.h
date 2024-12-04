@@ -9,7 +9,8 @@ void read_data_block_bitmap(char *data_block_bitmap);
 void write_data_block_bitmap(const char *data_block_bitmap);
 int allocate_free_data_block();
 void free_data_block(int block_index);
-void add_dentry_to_dir(struct wfs_inode *parent_inode,
-                       struct wfs_dentry *dentry);
-
+int check_duplicate_dentry(const struct wfs_inode *parent_inode,
+                           const char *dirname);
+int add_dentry_to_parent(struct wfs_inode *parent_inode, int parent_inode_num,
+                         const char *dirname, int inode_num);
 #endif

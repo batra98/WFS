@@ -15,6 +15,7 @@
 struct wfs_ctx {
   void **disk_mmaps;
   int num_disks;
+  size_t *disk_sizes;
 };
 
 extern struct wfs_ctx wfs_ctx;
