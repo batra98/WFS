@@ -12,6 +12,59 @@
 #include <string.h>
 #include <unistd.h>
 
+int wfs_write(const char *path, const char *buf, size_t size, off_t offset,
+              struct fuse_file_info *fi) {
+  printf("Entering wfs_write: path = %s, size = %zu, offset = %lld\n", path,
+         size, (long long)offset);
+
+  int N_DIRECT = N_BLOCKS;
+  size_t bytes_written = 0;
+  size_t block_offset, to_write;
+  char block_buffer[BLOCK_SIZE];
+
+  int inode_num = get_inode_index(path);
+  if (inode_num == -ENOENT) {
+    printf("File not found: %s\n", path);
+    return -ENOENT;
+  }
+
+  struct wfs_inode inode;
+  read_inode(&inode, inode_num);
+
+  if (!S_ISREG(inode.mode)) {
+    printf("Path is not a regular file: %s\n", path);
+    return -EISDIR;
+  }
+
+  while (bytes_written < size) {
+    size_t block_index = (offset + bytes_written) / BLOCK_SIZE;
+    block_offset = (offset + bytes_written) % BLOCK_SIZE;
+
+    if (block_index >= N_DIRECT) {
+      printf("File size exceeds direct block limit\n");
+      return -EFBIG;
+    }
+
+    int data_block_num = allocate_direct_block(&inode, block_index);
+
+    read_data_block(block_buffer, data_block_num);
+
+    to_write = (size - bytes_written < BLOCK_SIZE - block_offset)
+                   ? size - bytes_written
+                   : BLOCK_SIZE - block_offset;
+
+    memcpy(block_buffer + block_offset, buf, to_write);
+    write_data_block(block_buffer, data_block_num);
+
+    bytes_written += to_write;
+  }
+
+  update_inode_size(&inode, inode_num, offset + bytes_written);
+
+  printf("Write complete: %zu bytes written to %s\n", bytes_written, path);
+  return bytes_written;
+}
+
 int wfs_mknod(const char *path, mode_t mode, dev_t dev) {
   printf("Entering wfs_mknod: path = %s\n", path);
 
@@ -206,4 +259,5 @@ struct fuse_operations ops = {
     .readdir = wfs_readdir,
     .mkdir = wfs_mkdir,
     .mknod = wfs_mknod,
+    .write = wfs_write,
 };

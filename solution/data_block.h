@@ -13,4 +13,9 @@ int check_duplicate_dentry(const struct wfs_inode *parent_inode,
                            const char *dirname);
 int add_dentry_to_parent(struct wfs_inode *parent_inode, int parent_inode_num,
                          const char *dirname, int inode_num);
+int allocate_indirect_block(struct wfs_inode *inode, size_t block_index,
+                            char *block_buffer);
+int allocate_direct_block(struct wfs_inode *inode, size_t block_index);
+void update_inode_size(struct wfs_inode *inode, size_t inode_num,
+                       off_t new_size);
 #endif

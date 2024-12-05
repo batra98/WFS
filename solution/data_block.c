@@ -174,3 +174,60 @@ int check_duplicate_dentry(const struct wfs_inode *parent_inode,
   }
   return -ENOENT;
 }
+
+int allocate_direct_block(struct wfs_inode *inode, size_t block_index) {
+  if (inode->blocks[block_index] == -1) {
+    inode->blocks[block_index] = allocate_free_data_block();
+    if (inode->blocks[block_index] < 0) {
+      printf("Failed to allocate data block for direct block %zu\n",
+             block_index);
+      return -EIO;
+    }
+  }
+  return inode->blocks[block_index];
+}
+
+int allocate_indirect_block(struct wfs_inode *inode, size_t block_index,
+                            char *block_buffer) {
+  int N_DIRECT = N_BLOCKS - 1;
+  if (inode->blocks[N_DIRECT] == -1) {
+    inode->blocks[N_DIRECT] = allocate_free_data_block();
+    if (inode->blocks[N_DIRECT] < 0) {
+      printf("Failed to allocate indirect block\n");
+      return -EIO;
+    }
+
+    memset(block_buffer, -1, BLOCK_SIZE);
+    write_data_block(block_buffer, inode->blocks[N_DIRECT]);
+  }
+
+  read_data_block(block_buffer, inode->blocks[N_DIRECT]);
+  int *indirect_blocks = (int *)block_buffer;
+
+  size_t indirect_index = block_index - N_DIRECT;
+  if (indirect_index >= BLOCK_SIZE / sizeof(int)) {
+    printf("Indirect index out of bounds: %zu\n", indirect_index);
+    return -EIO;
+  }
+
+  if (indirect_blocks[indirect_index] == -1) {
+    indirect_blocks[indirect_index] = allocate_free_data_block();
+    if (indirect_blocks[indirect_index] < 0) {
+      printf("Failed to allocate data block for indirect entry %zu\n",
+             indirect_index);
+      return -EIO;
+    }
+
+    write_data_block(block_buffer, inode->blocks[N_DIRECT]);
+  }
+
+  return indirect_blocks[indirect_index];
+}
+
+void update_inode_size(struct wfs_inode *inode, size_t inode_num,
+                       off_t new_size) {
+  if (new_size > inode->size) {
+    inode->size = new_size;
+    write_inode(inode, inode_num);
+  }
+}
