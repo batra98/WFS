@@ -1,25 +1,25 @@
 
 #include "raid.h"
 #include "globals.h"
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
-int get_raid_disk(int block_index) {
+int get_raid_disk(int block_index, int *disk_index) {
   DEBUG_LOG("Calculating RAID disk for block index %d in RAID mode %d.\n",
             block_index, sb.raid_mode);
 
   if (sb.raid_mode == RAID_0) {
-    int disk_index = block_index % wfs_ctx.num_disks;
-    DEBUG_LOG("RAID-0: Block %d maps to disk %d.\n", block_index, disk_index);
-    return disk_index;
+    *disk_index = block_index % wfs_ctx.num_disks;
+    DEBUG_LOG("RAID-0: Block %d maps to disk %d.\n", block_index, *disk_index);
   } else if (sb.raid_mode == RAID_1) {
     DEBUG_LOG("RAID-1: Block %d always maps to disk 0 (primary disk).\n",
               block_index);
-    return 0; // always return first disk
+    *disk_index = 0;
   }
 
-  ERROR_LOG("Invalid RAID mode %d.\n", sb.raid_mode);
-  return -1;
+  return block_index / wfs_ctx.num_disks;
 }
 
 void replicate(const void *block, size_t block_offset, size_t block_size,

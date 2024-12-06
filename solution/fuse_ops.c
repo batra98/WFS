@@ -401,16 +401,18 @@ int wfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             dir_inode.mode, dir_inode.size);
 
   for (int i = 0; i < N_BLOCKS && dir_inode.blocks[i] != -1; i++) {
-    int disk_index = get_raid_disk(dir_inode.blocks[i] / BLOCK_SIZE);
+    int block_index = dir_inode.blocks[i];
+    int disk_index;
+    block_index = get_raid_disk(block_index, &disk_index);
     if (disk_index < 0) {
       DEBUG_LOG("Error: Unable to get disk index for block %ld\n",
                 dir_inode.blocks[i]);
       return -EIO;
     }
 
-    size_t block_offset = DATA_BLOCK_OFFSET(dir_inode.blocks[i]);
-    DEBUG_LOG("Reading directory block: %ld (offset = %zu)\n",
-              dir_inode.blocks[i], block_offset);
+    size_t block_offset = DATA_BLOCK_OFFSET(block_index);
+    DEBUG_LOG("Reading directory block: %d (offset = %zu)\n", block_index,
+              block_offset);
 
     struct wfs_dentry *dentry =
         (struct wfs_dentry *)((char *)wfs_ctx.disk_mmaps[disk_index] +

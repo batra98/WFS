@@ -18,7 +18,8 @@
   } while (0)
 
 void read_data_block(void *block, size_t block_index) {
-  int disk_index = get_raid_disk(block_index / BLOCK_SIZE);
+  int disk_index;
+  block_index = get_raid_disk(block_index, &disk_index);
   if (disk_index < 0) {
     ERROR_LOG("Unable to get disk index for block %zu\n", block_index);
     return;
@@ -32,7 +33,8 @@ void read_data_block(void *block, size_t block_index) {
 }
 
 void write_data_block(const void *block, size_t block_index) {
-  int disk_index = get_raid_disk(block_index / BLOCK_SIZE);
+  int disk_index;
+  block_index = get_raid_disk(block_index, &disk_index);
   if (disk_index < 0) {
     ERROR_LOG("Unable to get disk index for block %zu\n", block_index);
     return;
@@ -49,9 +51,9 @@ void write_data_block(const void *block, size_t block_index) {
   }
 }
 
-void read_data_block_bitmap(char *data_block_bitmap) {
+void read_data_block_bitmap(char *data_block_bitmap, int disk_index) {
+
   size_t data_bitmap_size = (sb.num_data_blocks + 7) / 8;
-  int disk_index = get_raid_disk(0); // Bitmap always on the first disk
   if (disk_index < 0) {
     ERROR_LOG("Unable to get disk index for data block bitmap\n");
     return;
@@ -63,9 +65,8 @@ void read_data_block_bitmap(char *data_block_bitmap) {
   DEBUG_LOG("Read data block bitmap from disk %d\n", disk_index);
 }
 
-void write_data_block_bitmap(const char *data_block_bitmap) {
+void write_data_block_bitmap(const char *data_block_bitmap, int disk_index) {
   size_t data_bitmap_size = (sb.num_data_blocks + 7) / 8;
-  int disk_index = get_raid_disk(0); // Bitmap always on the first disk
   if (disk_index < 0) {
     ERROR_LOG("Unable to get disk index for data block bitmap\n");
     return;
@@ -85,14 +86,30 @@ int allocate_free_data_block() {
   size_t data_bitmap_size = (sb.num_data_blocks + 7) / 8;
   char data_block_bitmap[data_bitmap_size];
 
-  read_data_block_bitmap(data_block_bitmap);
+  if (sb.raid_mode == RAID_0) {
+    read_data_block_bitmap(data_block_bitmap, 0);
 
-  for (int i = 0; i < sb.num_data_blocks; i++) {
-    if (!IS_BIT_SET(data_block_bitmap, i)) {
-      SET_BIT(data_block_bitmap, i);
-      write_data_block_bitmap(data_block_bitmap);
-      DEBUG_LOG("Allocated data block %d\n", i);
-      return i;
+    for (int i = 0; i < sb.num_data_blocks; i++) {
+      if (!IS_BIT_SET(data_block_bitmap, i)) {
+        SET_BIT(data_block_bitmap, i);
+        write_data_block_bitmap(data_block_bitmap, 0);
+        DEBUG_LOG("Allocated data block %d\n", i);
+        return i;
+      }
+    }
+  } else if (sb.raid_mode == RAID_1) {
+
+    for (int i = 0; i < sb.num_data_blocks; i++) {
+      for (int j = 0; j < wfs_ctx.num_disks; j++) {
+        read_data_block_bitmap(data_block_bitmap, j);
+
+        if (!IS_BIT_SET(data_block_bitmap, i)) {
+          SET_BIT(data_block_bitmap, i);
+          write_data_block_bitmap(data_block_bitmap, j);
+          DEBUG_LOG("Allocated data block %d on disk %d", i, j);
+          return i * wfs_ctx.num_disks + j;
+        }
+      }
     }
   }
 
@@ -101,16 +118,18 @@ int allocate_free_data_block() {
 }
 
 void free_data_block(int block_index) {
+  int disk_index;
+  block_index = get_raid_disk(block_index, &disk_index);
   if (block_index < 0 || block_index >= sb.num_data_blocks) {
     ERROR_LOG("Invalid data block index %d\n", block_index);
     return;
   }
 
   char data_block_bitmap[(sb.num_data_blocks + 7) / 8];
-  read_data_block_bitmap(data_block_bitmap);
+  read_data_block_bitmap(data_block_bitmap, disk_index);
 
   CLEAR_BIT(data_block_bitmap, block_index);
-  write_data_block_bitmap(data_block_bitmap);
+  write_data_block_bitmap(data_block_bitmap, disk_index);
   DEBUG_LOG("Freed data block %d\n", block_index);
 }
 
@@ -215,13 +234,17 @@ int check_duplicate_dentry(const struct wfs_inode *parent_inode,
   for (int i = 0; i < N_BLOCKS && parent_inode->blocks[i] != -1; i++) {
     DEBUG_LOG("Checking block for duplicate directory entry");
 
-    int disk_index = get_raid_disk(parent_inode->blocks[i] / BLOCK_SIZE);
+    int block_index = parent_inode->blocks[i];
+
+    int disk_index;
+    block_index = get_raid_disk(block_index, &disk_index);
+
     if (disk_index < 0) {
       ERROR_LOG("Failed to get disk index");
       return -EIO;
     }
 
-    size_t block_offset = DATA_BLOCK_OFFSET(parent_inode->blocks[i]);
+    size_t block_offset = DATA_BLOCK_OFFSET(block_index);
     dentry = (struct wfs_dentry *)((char *)wfs_ctx.disk_mmaps[disk_index] +
                                    block_offset);
 

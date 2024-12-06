@@ -3,22 +3,18 @@
 #include "raid.h"
 #include "wfs.h"
 #include <errno.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
-static void replicate_if_needed(const void *data, off_t offset, size_t size,
-                                int disk_index) {
-  if (sb.raid_mode == RAID_1) {
-    DEBUG_LOG("Replicating data at offset %ld", offset);
-    replicate(data, offset, size, disk_index);
-  }
-}
-
 void read_inode(struct wfs_inode *inode, size_t inode_index) {
+
+  int disk_index = 0;
+
   off_t offset = INODE_OFFSET(inode_index);
-  int disk_index = get_raid_disk(offset / BLOCK_SIZE);
   void *inode_offset = (char *)wfs_ctx.disk_mmaps[disk_index] + offset;
 
   memcpy(inode, inode_offset, sizeof(struct wfs_inode));
@@ -26,19 +22,24 @@ void read_inode(struct wfs_inode *inode, size_t inode_index) {
 }
 
 void write_inode(const struct wfs_inode *inode, size_t inode_index) {
+
+  int disk_index = 0;
+
   off_t offset = INODE_OFFSET(inode_index);
-  int disk_index = get_raid_disk(offset / BLOCK_SIZE);
   void *inode_offset = (char *)wfs_ctx.disk_mmaps[disk_index] + offset;
 
   memcpy(inode_offset, inode, sizeof(struct wfs_inode));
   DEBUG_LOG("Wrote inode at index %zu to disk %d", inode_index, disk_index);
 
-  replicate_if_needed(inode, offset, sizeof(struct wfs_inode), disk_index);
+  replicate(inode, offset, sizeof(struct wfs_inode), disk_index);
 }
 
 void read_inode_bitmap(char *inode_bitmap) {
+
+  int disk_index =
+      0; // inode bitmaps are same across so we can just use disk 0;
+
   size_t inode_bitmap_size = (sb.num_inodes + 7) / 8;
-  int disk_index = get_raid_disk(INODE_BITMAP_OFFSET / BLOCK_SIZE);
 
   memcpy(inode_bitmap,
          (char *)wfs_ctx.disk_mmaps[disk_index] + INODE_BITMAP_OFFSET,
@@ -47,15 +48,17 @@ void read_inode_bitmap(char *inode_bitmap) {
 }
 
 void write_inode_bitmap(const char *inode_bitmap) {
+
+  int disk_index =
+      0; // inode bitmaps are same across so we can just use disk 0;
+
   size_t inode_bitmap_size = (sb.num_inodes + 7) / 8;
-  int disk_index = get_raid_disk(INODE_BITMAP_OFFSET / BLOCK_SIZE);
 
   memcpy((char *)wfs_ctx.disk_mmaps[disk_index] + INODE_BITMAP_OFFSET,
          inode_bitmap, inode_bitmap_size);
   DEBUG_LOG("Wrote inode bitmap to disk %d", disk_index);
 
-  replicate_if_needed(inode_bitmap, INODE_BITMAP_OFFSET, inode_bitmap_size,
-                      disk_index);
+  replicate(inode_bitmap, INODE_BITMAP_OFFSET, inode_bitmap_size, disk_index);
 }
 
 void clear_inode_bitmap(int inode_num) {
@@ -187,11 +190,15 @@ int find_dentry_in_inode(int parent_inode_num, const char *name) {
       continue;
     }
 
+    size_t block_index = parent_inode.blocks[i];
+
+    int disk_index;
+    block_index = get_raid_disk(block_index, &disk_index);
+
     size_t num_entries = BLOCK_SIZE / sizeof(struct wfs_dentry);
     for (size_t j = 0; j < num_entries; j++) {
       struct wfs_dentry entry;
-      off_t offset = DENTRY_OFFSET(parent_inode.blocks[i], j);
-      int disk_index = get_raid_disk(offset);
+      off_t offset = DENTRY_OFFSET(block_index, j);
 
       memcpy(&entry, (char *)wfs_ctx.disk_mmaps[disk_index] + offset,
              sizeof(struct wfs_dentry));
