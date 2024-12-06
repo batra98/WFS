@@ -64,23 +64,11 @@ void clear_inode_bitmap(int inode_num) {
   char bitmap_block[BLOCK_SIZE];
   read_inode_bitmap(bitmap_block);
 
-  printf("Bitmap before clearing:\n");
-  for (int i = 0; i < BLOCK_SIZE; i++) {
-    printf("%02x ", (unsigned char)bitmap_block[i]);
-    if ((i + 1) % 16 == 0)
-      printf("\n");
-  }
-  printf("\n");
+  PRINT_BITMAP("Bitmap before clearing:\n", bitmap_block);
 
   CLEAR_BIT(bitmap_block, inode_num);
 
-  printf("Bitmap after clearing:\n");
-  for (int i = 0; i < BLOCK_SIZE; i++) {
-    printf("%02x ", (unsigned char)bitmap_block[i]);
-    if ((i + 1) % 16 == 0)
-      printf("\n");
-  }
-  printf("\n");
+  PRINT_BITMAP("Bitmap after clearing:\n", bitmap_block);
 
   write_inode_bitmap(bitmap_block);
 

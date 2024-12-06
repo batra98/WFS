@@ -17,6 +17,17 @@
     printf("  Data Bitmap Pointer: %ld\n", (sb).d_bitmap_ptr);                 \
   } while (0)
 
+#define PRINT_BITMAP(title, bitmap)                                            \
+  do {                                                                         \
+    printf("%s\n", title);                                                     \
+    for (int i = 0; i < BLOCK_SIZE; i++) {                                     \
+      printf("%02x ", (unsigned char)bitmap[i]);                               \
+      if ((i + 1) % 16 == 0)                                                   \
+        printf("\n");                                                          \
+    }                                                                          \
+    printf("\n");                                                              \
+  } while (0)
+
 #define DENTRY_OFFSET(block, index)                                            \
   (sb.d_blocks_ptr + (block) * BLOCK_SIZE + (index) * sizeof(struct wfs_dentry))
 #define DATA_BLOCK_OFFSET(index) (sb.d_blocks_ptr + (index) * BLOCK_SIZE)
