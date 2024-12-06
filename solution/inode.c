@@ -1,3 +1,4 @@
+#include "data_block.h"
 #include "globals.h"
 #include "raid.h"
 #include "wfs.h"
@@ -6,11 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
-#define DEBUG_LOG(fmt, ...) fprintf(stderr, "[DEBUG] " fmt "\n", ##__VA_ARGS__)
-
-#define SET_BIT(bitmap, index) (bitmap[(index) / 8] |= (1 << ((index) % 8)))
-#define IS_BIT_SET(bitmap, index) (bitmap[(index) / 8] & (1 << ((index) % 8)))
 
 static void replicate_if_needed(const void *data, off_t offset, size_t size,
                                 int disk_index) {
@@ -62,6 +58,47 @@ void write_inode_bitmap(const char *inode_bitmap) {
                       disk_index);
 }
 
+void clear_inode_bitmap(int inode_num) {
+  printf("Clearing inode bitmap for inode number: %d\n", inode_num);
+
+  char bitmap_block[BLOCK_SIZE];
+  read_inode_bitmap(bitmap_block);
+
+  printf("Bitmap before clearing:\n");
+  for (int i = 0; i < BLOCK_SIZE; i++) {
+    printf("%02x ", (unsigned char)bitmap_block[i]);
+    if ((i + 1) % 16 == 0)
+      printf("\n");
+  }
+  printf("\n");
+
+  CLEAR_BIT(bitmap_block, inode_num);
+
+  printf("Bitmap after clearing:\n");
+  for (int i = 0; i < BLOCK_SIZE; i++) {
+    printf("%02x ", (unsigned char)bitmap_block[i]);
+    if ((i + 1) % 16 == 0)
+      printf("\n");
+  }
+  printf("\n");
+
+  write_inode_bitmap(bitmap_block);
+
+  printf("Inode bitmap cleared for inode number: %d\n", inode_num);
+}
+
+int free_inode(int inode_num) {
+  struct wfs_inode inode;
+  read_inode(&inode, inode_num);
+
+  free_direct_data_blocks(&inode);
+  free_indirect_data_block(&inode);
+  clear_inode_bitmap(inode_num);
+
+  DEBUG_LOG("Inode %d successfully freed\n", inode_num);
+  return 0;
+}
+
 int allocate_free_inode() {
   size_t inode_bitmap_size = (sb.num_inodes + 7) / 8;
   char inode_bitmap[inode_bitmap_size];
@@ -106,6 +143,49 @@ int allocate_and_init_inode(mode_t mode, mode_t type_flag) {
   write_inode(&new_inode, inode_num);
   DEBUG_LOG("Initialized inode %d with mode %o", inode_num, new_inode.mode);
   return inode_num;
+}
+
+int remove_dentry_in_inode(struct wfs_inode *parent_inode,
+                           int target_inode_num) {
+  char block_buffer[BLOCK_SIZE];
+  for (int i = 0; i < N_BLOCKS; i++) {
+    if (parent_inode->blocks[i] == -1)
+      continue;
+
+    read_data_block(block_buffer, parent_inode->blocks[i]);
+    struct wfs_dentry *entries = (struct wfs_dentry *)block_buffer;
+
+    for (int j = 0; j < BLOCK_SIZE / sizeof(struct wfs_dentry); j++) {
+      if (entries[j].num == target_inode_num) {
+        entries[j].num = -1;
+        memset(entries[j].name, 0, sizeof(entries[j].name));
+
+        write_data_block(block_buffer, parent_inode->blocks[i]);
+        return 0;
+      }
+    }
+  }
+
+  return -1;
+}
+
+int is_directory_empty(struct wfs_inode *inode) {
+  char block_buffer[BLOCK_SIZE];
+  for (int i = 0; i < N_BLOCKS; i++) {
+    if (inode->blocks[i] == -1)
+      continue;
+
+    read_data_block(block_buffer, inode->blocks[i]);
+    struct wfs_dentry *entries = (struct wfs_dentry *)block_buffer;
+
+    for (int j = 0; j < BLOCK_SIZE / sizeof(struct wfs_dentry); j++) {
+      if (entries[j].num != -1 && strcmp(entries[j].name, ".") != 0 &&
+          strcmp(entries[j].name, "..") != 0) {
+        return 0; // Not empty
+      }
+    }
+  }
+  return 1; // Empty
 }
 
 int find_dentry_in_inode(int parent_inode_num, const char *name) {

@@ -12,6 +12,65 @@
 #include <string.h>
 #include <unistd.h>
 
+int wfs_rmdir(const char *path) {
+  printf("Entering wfs_rmdir: path = %s\n", path);
+
+  char parent_path[PATH_MAX];
+  char dir_name[MAX_NAME];
+
+  if (split_path(path, parent_path, dir_name) < 0) {
+    printf("Failed to split path: %s\n", path);
+    return -EINVAL;
+  }
+
+  printf("Parent path: %s, Directory name: %s\n", parent_path, dir_name);
+
+  int parent_inode_num = get_inode_index(parent_path);
+  if (parent_inode_num == -ENOENT) {
+    printf("Parent directory not found: %s\n", parent_path);
+    return -ENOENT;
+  }
+
+  struct wfs_inode parent_inode;
+  read_inode(&parent_inode, parent_inode_num);
+
+  if (!S_ISDIR(parent_inode.mode)) {
+    printf("Parent is not a directory: %s\n", parent_path);
+    return -ENOTDIR;
+  }
+
+  int inode_num = find_dentry_in_inode(parent_inode_num, dir_name);
+  if (inode_num == -ENOENT) {
+    printf("Child not found in parent directory: %s\n", dir_name);
+    return -ENOENT;
+  }
+
+  struct wfs_inode inode;
+  read_inode(&inode, inode_num);
+
+  if (!S_ISDIR(inode.mode)) {
+    printf("Path is not a directory: %s\n", path);
+    return -ENOTDIR;
+  }
+
+  if (!is_directory_empty(&inode)) {
+    printf("Directory is not empty: %s\n", path);
+    return -ENOTEMPTY;
+  }
+
+  free_inode(inode_num);
+
+  if (remove_dentry_in_inode(&parent_inode, inode_num) < 0) {
+    printf("Failed to remove directory entry for %s\n", path);
+    return -EIO;
+  }
+
+  write_inode(&parent_inode, parent_inode_num);
+
+  printf("Directory successfully removed: %s\n", path);
+  return 0;
+}
+
 int wfs_read(const char *path, char *buf, size_t size, off_t offset,
              struct fuse_file_info *fi) {
   printf("Entering wfs_read: path = %s, size = %zu, offset = %lld\n", path,
@@ -68,7 +127,6 @@ int wfs_read(const char *path, char *buf, size_t size, off_t offset,
     printf("Reading data block number: %d\n", data_block_num);
     read_data_block(block_buffer, data_block_num);
 
-    // Debug: Print block contents before reading
     printf("Block %d contents before read:\n", data_block_num);
     for (int i = 0; i < BLOCK_SIZE; i++) {
       printf("%02x ", (unsigned char)block_buffer[i]);
@@ -207,15 +265,6 @@ int wfs_mknod(const char *path, mode_t mode, dev_t dev) {
     printf("Failed to allocate inode for file: %s\n", path);
     return inode_num;
   }
-
-  /*// For special files, store the device information in the inode
-  if (S_ISCHR(mode) || S_ISBLK(mode)) {
-    struct wfs_inode new_inode;
-    read_inode(&new_inode, inode_num);
-    new_inode.dev = dev;
-    write_inode(&new_inode, inode_num);
-    printf("Stored device info for special file: %s\n", path);
-  }*/
 
   if (add_dentry_to_parent(&parent_inode, parent_inode_num, filename,
                            inode_num) < 0) {
@@ -371,4 +420,5 @@ struct fuse_operations ops = {
     .mknod = wfs_mknod,
     .write = wfs_write,
     .read = wfs_read,
+    .rmdir = wfs_rmdir,
 };

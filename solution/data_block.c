@@ -8,7 +8,6 @@
 #include <string.h>
 #include <unistd.h>
 
-// Macro for allocating and writing a data block
 #define ALLOCATE_AND_WRITE_DATA_BLOCK(block_buffer, block_num)                 \
   do {                                                                         \
     memset(block_buffer, -1, BLOCK_SIZE);                                      \
@@ -113,6 +112,34 @@ void free_data_block(int block_index) {
   CLEAR_BIT(data_block_bitmap, block_index);
   write_data_block_bitmap(data_block_bitmap);
   DEBUG_LOG("Freed data block %d\n", block_index);
+}
+
+void free_direct_data_blocks(struct wfs_inode *inode) {
+  for (int i = 0; i < N_BLOCKS - 1; i++) {
+    if (inode->blocks[i] != -1) {
+      free_data_block(inode->blocks[i]);
+      inode->blocks[i] = -1;
+    }
+  }
+}
+
+void free_indirect_data_block(struct wfs_inode *inode) {
+  if (inode->blocks[N_BLOCKS - 1] != -1) {
+    char block_buffer[BLOCK_SIZE];
+    read_data_block(block_buffer, inode->blocks[N_BLOCKS - 1]);
+
+    int *indirect_blocks = (int *)block_buffer;
+
+    for (int i = 0; i < BLOCK_SIZE / sizeof(int); i++) {
+      if (indirect_blocks[i] != -1) {
+        free_data_block(indirect_blocks[i]);
+        indirect_blocks[i] = -1;
+      }
+    }
+
+    free_data_block(inode->blocks[N_BLOCKS - 1]);
+    inode->blocks[N_BLOCKS - 1] = -1;
+  }
 }
 
 int add_dentry_to_parent(struct wfs_inode *parent_inode, int parent_inode_num,

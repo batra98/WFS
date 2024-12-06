@@ -12,16 +12,6 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-void print_superblock() {
-  printf("Superblock Contents:\n");
-  printf("  Total Blocks: %ld\n", sb.num_data_blocks);
-  printf("  Inode Count: %ld\n", sb.num_inodes);
-  printf("  Data Blocks Pointer: %ld\n", sb.d_blocks_ptr);
-  printf("  Inode Blocks Pointer: %ld\n", sb.i_blocks_ptr);
-  printf("  Inode Bitmap Pointer: %ld\n", sb.i_bitmap_ptr);
-  printf("  Data Bitmap Pointer: %ld\n", sb.d_bitmap_ptr);
-}
-
 static void print_usage(const char *progname) {
   fprintf(stderr, "Usage: %s disk1 [disk2 ...] [FUSE options] mount_point\n",
           progname);
@@ -84,7 +74,7 @@ int load_superblock(void *disk_mmap, struct wfs_sb *sb) {
 
   memcpy(sb, disk_mmap, sizeof(struct wfs_sb));
 
-  print_superblock();
+  PRINT_SUPERBLOCK(*sb);
   return 0;
 }
 
