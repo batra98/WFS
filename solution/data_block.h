@@ -18,4 +18,6 @@ int allocate_indirect_block(struct wfs_inode *inode, size_t block_index,
 int allocate_direct_block(struct wfs_inode *inode, size_t block_index);
 void update_inode_size(struct wfs_inode *inode, size_t inode_num,
                        off_t new_size);
+int read_from_indirect_block(struct wfs_inode *inode, size_t indirect_index,
+                             char *block_buffer);
 #endif

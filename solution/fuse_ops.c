@@ -17,7 +17,7 @@ int wfs_read(const char *path, char *buf, size_t size, off_t offset,
   printf("Entering wfs_read: path = %s, size = %zu, offset = %lld\n", path,
          size, (long long)offset);
 
-  int N_DIRECT = N_BLOCKS;
+  int N_DIRECT = N_BLOCKS - 1;
   size_t bytes_read = 0;
   size_t block_offset, to_read;
   char block_buffer[BLOCK_SIZE];
@@ -50,12 +50,16 @@ int wfs_read(const char *path, char *buf, size_t size, off_t offset,
     printf("block_index = %ld, block_offset = %ld\n", block_index,
            block_offset);
 
-    if (block_index >= N_DIRECT) {
-      printf("File size exceeds direct block limit\n");
-      return -EFBIG;
+    int data_block_num;
+
+    if (block_index < N_DIRECT) {
+      data_block_num = inode.blocks[block_index];
+    } else {
+      size_t indirect_index = block_index - N_DIRECT;
+      data_block_num =
+          read_from_indirect_block(&inode, indirect_index, block_buffer);
     }
 
-    int data_block_num = inode.blocks[block_index];
     if (data_block_num == -1) {
       printf("No data block allocated at index %zu\n", block_index);
       return -EIO;

@@ -252,3 +252,24 @@ void update_inode_size(struct wfs_inode *inode, size_t inode_num,
     DEBUG_LOG("Inode size remains unchanged");
   }
 }
+
+int read_from_indirect_block(struct wfs_inode *inode, size_t indirect_index,
+                             char *block_buffer) {
+  int N_DIRECT = N_BLOCKS - 1;
+
+  if (inode->blocks[N_DIRECT] == -1) {
+    printf("Indirect block not allocated\n");
+    return -1;
+  }
+
+  read_data_block(block_buffer, inode->blocks[N_DIRECT]);
+
+  int *indirect_blocks = (int *)block_buffer;
+  if (indirect_blocks[indirect_index] == -1) {
+    DEBUG_LOG("No data block allocated at indirect index %zu\n",
+              indirect_index);
+    return -1;
+  }
+
+  return indirect_blocks[indirect_index];
+}
