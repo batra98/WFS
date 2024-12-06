@@ -98,7 +98,7 @@ int wfs_write(const char *path, const char *buf, size_t size, off_t offset,
   printf("Entering wfs_write: path = %s, size = %zu, offset = %lld\n", path,
          size, (long long)offset);
 
-  int N_DIRECT = N_BLOCKS;
+  int N_DIRECT = N_BLOCKS - 1;
   size_t bytes_written = 0;
   size_t block_offset, to_write;
   char block_buffer[BLOCK_SIZE];
@@ -126,24 +126,28 @@ int wfs_write(const char *path, const char *buf, size_t size, off_t offset,
     printf("block_index = %ld, block_offset = %ld\n", block_index,
            block_offset);
 
-    if (block_index >= N_DIRECT) {
-      printf("File size exceeds direct block limit\n");
-      return -EFBIG;
+    int data_block_num;
+    if (block_index < N_DIRECT) {
+      data_block_num = allocate_direct_block(&inode, block_index);
+    } else {
+      data_block_num =
+          allocate_indirect_block(&inode, block_index, block_buffer);
+      if (data_block_num == -1) {
+        data_block_num = allocate_free_data_block();
+        if (data_block_num < 0) {
+          printf("Failed to allocate data block for indirect index %zu\n",
+                 block_index - N_DIRECT);
+          return -EIO;
+        }
+
+        int *indirect_blocks = (int *)block_buffer;
+        size_t indirect_index = block_index - N_DIRECT;
+        indirect_blocks[indirect_index] = data_block_num;
+        write_data_block(block_buffer, inode.blocks[N_DIRECT]);
+      }
     }
 
-    int data_block_num = allocate_direct_block(&inode, block_index);
-    printf("Allocated block number: %d for block_index: %zu\n", data_block_num,
-           block_index);
-
-    // Read current block into buffer
     read_data_block(block_buffer, data_block_num);
-
-    // Debug: Print block before writing
-    printf("Block %d before write:\n", data_block_num);
-    for (int i = 0; i < BLOCK_SIZE; i++) {
-      printf("%02x ", (unsigned char)block_buffer[i]);
-    }
-    printf("\n");
 
     to_write = (size - bytes_written < BLOCK_SIZE - block_offset)
                    ? size - bytes_written
@@ -151,26 +155,17 @@ int wfs_write(const char *path, const char *buf, size_t size, off_t offset,
 
     printf("to_write: %ld\n", to_write);
 
-    // Copy data to block buffer
     memcpy(block_buffer + block_offset, buf + bytes_written, to_write);
-
-    // Debug: Print block buffer after copying data
-    printf("Block buffer after write:\n");
-    for (int i = 0; i < BLOCK_SIZE; i++) {
-      printf("%02x ", (unsigned char)block_buffer[i]);
-    }
-    printf("\n");
-
-    // Write data to block
     write_data_block(block_buffer, data_block_num);
     printf("Data written to block number: %d\n", data_block_num);
 
     bytes_written += to_write;
   }
 
-  // Update inode size if necessary
-  update_inode_size(&inode, inode_num, offset + bytes_written);
-  printf("Inode size updated to: %zu\n", inode.size);
+  if (offset + bytes_written > inode.size) {
+    inode.size = offset + bytes_written;
+    write_inode(&inode, inode_num);
+  }
 
   printf("Write complete: %zu bytes written to %s\n", bytes_written, path);
   return bytes_written;
