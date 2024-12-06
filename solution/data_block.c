@@ -1,4 +1,3 @@
-
 #include "globals.h"
 #include "inode.h"
 #include "raid.h"
@@ -9,67 +8,78 @@
 #include <string.h>
 #include <unistd.h>
 
-void read_data_block(void *block, size_t block_index) {
+// Macro for allocating and writing a data block
+#define ALLOCATE_AND_WRITE_DATA_BLOCK(block_buffer, block_num)                 \
+  do {                                                                         \
+    memset(block_buffer, -1, BLOCK_SIZE);                                      \
+    if (write_data_block(block_buffer, block_num) < 0) {                       \
+      ERROR_LOG("Failed to write data block");                                 \
+      return -EIO;                                                             \
+    }                                                                          \
+  } while (0)
 
+void read_data_block(void *block, size_t block_index) {
   int disk_index = get_raid_disk(block_index / BLOCK_SIZE);
   if (disk_index < 0) {
-    fprintf(stderr, "Error: Unable to get disk index for block %zu\n",
-            block_index);
+    ERROR_LOG("Unable to get disk index for block %zu\n", block_index);
     return;
   }
 
   size_t block_offset = DATA_BLOCK_OFFSET(block_index);
-  char *disk_mmap = (char *)wfs_ctx.disk_mmaps[disk_index];
-
-  printf("Reading block %ld (offset: %zu)\n", block_index, block_offset);
-
-  memcpy(block, disk_mmap + block_offset, BLOCK_SIZE);
+  memcpy(block, (char *)wfs_ctx.disk_mmaps[disk_index] + block_offset,
+         BLOCK_SIZE);
+  DEBUG_LOG("Read block %zu (offset: %zu) from disk %d\n", block_index,
+            block_offset, disk_index);
 }
 
 void write_data_block(const void *block, size_t block_index) {
   int disk_index = get_raid_disk(block_index / BLOCK_SIZE);
   if (disk_index < 0) {
-    fprintf(stderr, "Error: Unable to get disk index for block %zu\n",
-            block_index);
+    ERROR_LOG("Unable to get disk index for block %zu\n", block_index);
     return;
   }
 
   size_t block_offset = DATA_BLOCK_OFFSET(block_index);
-  char *disk_mmap = (char *)wfs_ctx.disk_mmaps[disk_index];
-  memcpy(disk_mmap + block_offset, block, BLOCK_SIZE);
+  memcpy((char *)wfs_ctx.disk_mmaps[disk_index] + block_offset, block,
+         BLOCK_SIZE);
+  DEBUG_LOG("Wrote block %zu (offset: %zu) to disk %d\n", block_index,
+            block_offset, disk_index);
 
-  printf("Writing block %ld (offset: %zu)\n", block_index, block_offset);
-
-  if (sb.raid_mode == RAID_1)
+  if (sb.raid_mode == RAID_1) {
     replicate(block, block_offset, BLOCK_SIZE, disk_index);
+  }
 }
 
 void read_data_block_bitmap(char *data_block_bitmap) {
   size_t data_bitmap_size = (sb.num_data_blocks + 7) / 8;
-  int disk_index = get_raid_disk(0); // Always use the first disk for bitmap
+  int disk_index = get_raid_disk(0); // Bitmap always on the first disk
   if (disk_index < 0) {
-    fprintf(stderr, "Error: Unable to get disk index for bitmap\n");
+    ERROR_LOG("Unable to get disk index for data block bitmap\n");
     return;
   }
 
-  char *disk_mmap = (char *)wfs_ctx.disk_mmaps[disk_index];
-  memcpy(data_block_bitmap, disk_mmap + DATA_BITMAP_OFFSET, data_bitmap_size);
+  memcpy(data_block_bitmap,
+         (char *)wfs_ctx.disk_mmaps[disk_index] + DATA_BITMAP_OFFSET,
+         data_bitmap_size);
+  DEBUG_LOG("Read data block bitmap from disk %d\n", disk_index);
 }
 
 void write_data_block_bitmap(const char *data_block_bitmap) {
   size_t data_bitmap_size = (sb.num_data_blocks + 7) / 8;
-  int disk_index = get_raid_disk(0); // Always use the first disk for bitmap
+  int disk_index = get_raid_disk(0); // Bitmap always on the first disk
   if (disk_index < 0) {
-    fprintf(stderr, "Error: Unable to get disk index for bitmap\n");
+    ERROR_LOG("Unable to get disk index for data block bitmap\n");
     return;
   }
 
-  char *disk_mmap = (char *)wfs_ctx.disk_mmaps[disk_index];
-  memcpy(disk_mmap + DATA_BITMAP_OFFSET, data_block_bitmap, data_bitmap_size);
+  memcpy((char *)wfs_ctx.disk_mmaps[disk_index] + DATA_BITMAP_OFFSET,
+         data_block_bitmap, data_bitmap_size);
+  DEBUG_LOG("Wrote data block bitmap to disk %d\n", disk_index);
 
-  if (sb.raid_mode == RAID_1)
+  if (sb.raid_mode == RAID_1) {
     replicate(data_block_bitmap, DATA_BITMAP_OFFSET, data_bitmap_size,
               disk_index);
+  }
 }
 
 int allocate_free_data_block() {
@@ -79,111 +89,84 @@ int allocate_free_data_block() {
   read_data_block_bitmap(data_block_bitmap);
 
   for (int i = 0; i < sb.num_data_blocks; i++) {
-    if (!(data_block_bitmap[i / 8] & (1 << (i % 8)))) {
-      data_block_bitmap[i / 8] |= (1 << (i % 8));
+    if (!IS_BIT_SET(data_block_bitmap, i)) {
+      SET_BIT(data_block_bitmap, i);
       write_data_block_bitmap(data_block_bitmap);
+      DEBUG_LOG("Allocated data block %d\n", i);
       return i;
     }
   }
 
+  ERROR_LOG("No free data blocks available\n");
   return -ENOSPC;
 }
 
 void free_data_block(int block_index) {
   if (block_index < 0 || block_index >= sb.num_data_blocks) {
-    fprintf(stderr, "Invalid data block index\n");
+    ERROR_LOG("Invalid data block index %d\n", block_index);
     return;
   }
 
   char data_block_bitmap[(sb.num_data_blocks + 7) / 8];
   read_data_block_bitmap(data_block_bitmap);
 
-  data_block_bitmap[block_index / 8] &= ~(1 << (block_index % 8));
+  CLEAR_BIT(data_block_bitmap, block_index);
   write_data_block_bitmap(data_block_bitmap);
+  DEBUG_LOG("Freed data block %d\n", block_index);
 }
 
 int add_dentry_to_parent(struct wfs_inode *parent_inode, int parent_inode_num,
                          const char *dirname, int inode_num) {
-  int disk_index;
-  int parent_block_num = -1;
   for (int i = 0; i < N_BLOCKS; i++) {
     if (parent_inode->blocks[i] == -1) {
-      parent_block_num = allocate_free_data_block();
-      if (parent_block_num < 0) {
-        return parent_block_num;
-      }
-      parent_inode->blocks[i] = parent_block_num;
-      printf("Allocated new data block for parent directory: parent_block_num "
-             "= %d\n",
-             parent_block_num);
+      int new_block = allocate_free_data_block();
+      if (new_block < 0)
+        return new_block;
 
-      struct wfs_dentry new_block[BLOCK_SIZE / sizeof(struct wfs_dentry)];
-      memset(new_block, -1, sizeof(new_block));
-      new_block[0].num = inode_num;
-      strncpy(new_block[0].name, dirname, MAX_NAME);
+      parent_inode->blocks[i] = new_block;
+      DEBUG_LOG("Allocated new data block %d for parent inode %d\n", new_block,
+                parent_inode_num);
 
-      write_data_block(new_block, parent_block_num);
+      struct wfs_dentry
+          new_block_content[BLOCK_SIZE / sizeof(struct wfs_dentry)];
+      memset(new_block_content, -1, sizeof(new_block_content));
+
+      new_block_content[0].num = inode_num;
+      strncpy(new_block_content[0].name, dirname, MAX_NAME);
+
+      write_data_block(new_block_content, new_block);
 
       parent_inode->size += sizeof(struct wfs_dentry);
       parent_inode->nlinks++;
       write_inode(parent_inode, parent_inode_num);
-
-      printf("Added new directory entry to newly allocated block: %s\n",
-             dirname);
+      DEBUG_LOG("Added dentry %s (inode %d) to parent %d in a new block\n",
+                dirname, inode_num, parent_inode_num);
       return 0;
     }
 
-    disk_index = get_raid_disk(parent_inode->blocks[i] / BLOCK_SIZE);
-    if (disk_index < 0) {
-      printf("Error: Unable to get disk index for parent directory block %d\n",
-             i);
-      return -EIO;
-    }
+    struct wfs_dentry block_content[BLOCK_SIZE / sizeof(struct wfs_dentry)];
+    read_data_block(block_content, parent_inode->blocks[i]);
 
-    struct wfs_dentry *parent_dir_block =
-        (struct wfs_dentry *)((char *)wfs_ctx.disk_mmaps[disk_index] +
-                              DATA_BLOCK_OFFSET(parent_inode->blocks[i]));
     for (int j = 0; j < BLOCK_SIZE / sizeof(struct wfs_dentry); j++) {
-      if (parent_dir_block[j].num == -1) {
-        parent_dir_block[j].num = inode_num;
-        strncpy(parent_dir_block[j].name, dirname, MAX_NAME);
+      if (block_content[j].num == -1) {
+        block_content[j].num = inode_num;
+        strncpy(block_content[j].name, dirname, MAX_NAME);
+
+        write_data_block(block_content, parent_inode->blocks[i]);
 
         parent_inode->size += sizeof(struct wfs_dentry);
         parent_inode->nlinks++;
-        write_data_block(parent_dir_block, parent_inode->blocks[i]);
         write_inode(parent_inode, parent_inode_num);
-
-        printf("Added new directory entry to parent: %s\n", dirname);
+        DEBUG_LOG("Added dentry %s (inode %d) to parent %d\n", dirname,
+                  inode_num, parent_inode_num);
         return 0;
       }
     }
   }
 
-  printf("Error: No space left to add directory entry\n");
+  ERROR_LOG("No space left to add directory entry in parent inode %d\n",
+            parent_inode_num);
   return -ENOSPC;
-}
-
-int check_duplicate_dentry(const struct wfs_inode *parent_inode,
-                           const char *dirname) {
-  struct wfs_dentry *dentry;
-
-  for (int i = 0; i < N_BLOCKS && parent_inode->blocks[i] != -1; i++) {
-    int disk_index = get_raid_disk(parent_inode->blocks[i] / BLOCK_SIZE);
-    if (disk_index < 0) {
-      return -EIO;
-    }
-
-    size_t block_offset = DATA_BLOCK_OFFSET(parent_inode->blocks[i]);
-    dentry = (struct wfs_dentry *)((char *)wfs_ctx.disk_mmaps[disk_index] +
-                                   block_offset);
-
-    for (int j = 0; j < BLOCK_SIZE / sizeof(struct wfs_dentry); j++) {
-      if (dentry[j].num != -1 && strcmp(dentry[j].name, dirname) == 0) {
-        return 0;
-      }
-    }
-  }
-  return -ENOENT;
 }
 
 int allocate_direct_block(struct wfs_inode *inode, size_t block_index) {
@@ -198,13 +181,43 @@ int allocate_direct_block(struct wfs_inode *inode, size_t block_index) {
   return inode->blocks[block_index];
 }
 
+int check_duplicate_dentry(const struct wfs_inode *parent_inode,
+                           const char *dirname) {
+  struct wfs_dentry *dentry;
+
+  for (int i = 0; i < N_BLOCKS && parent_inode->blocks[i] != -1; i++) {
+    DEBUG_LOG("Checking block for duplicate directory entry");
+
+    int disk_index = get_raid_disk(parent_inode->blocks[i] / BLOCK_SIZE);
+    if (disk_index < 0) {
+      ERROR_LOG("Failed to get disk index");
+      return -EIO;
+    }
+
+    size_t block_offset = DATA_BLOCK_OFFSET(parent_inode->blocks[i]);
+    dentry = (struct wfs_dentry *)((char *)wfs_ctx.disk_mmaps[disk_index] +
+                                   block_offset);
+
+    for (int j = 0; j < BLOCK_SIZE / sizeof(struct wfs_dentry); j++) {
+      if (dentry[j].num != -1 && strcmp(dentry[j].name, dirname) == 0) {
+        DEBUG_LOG("Found duplicate dentry");
+        return 0; // Found duplicate entry
+      }
+    }
+  }
+  DEBUG_LOG("No duplicate dentry found");
+  return -ENOENT; // No duplicate found
+}
+
 int allocate_indirect_block(struct wfs_inode *inode, size_t block_index,
                             char *block_buffer) {
   int N_DIRECT = N_BLOCKS - 1;
+
   if (inode->blocks[N_DIRECT] == -1) {
+    DEBUG_LOG("Indirect block not allocated, allocating now");
     inode->blocks[N_DIRECT] = allocate_free_data_block();
     if (inode->blocks[N_DIRECT] < 0) {
-      printf("Failed to allocate indirect block\n");
+      ERROR_LOG("Failed to allocate indirect block");
       return -EIO;
     }
 
@@ -217,19 +230,13 @@ int allocate_indirect_block(struct wfs_inode *inode, size_t block_index,
 
   size_t indirect_index = block_index - N_DIRECT;
   if (indirect_index >= BLOCK_SIZE / sizeof(int)) {
-    printf("Indirect index out of bounds: %zu\n", indirect_index);
+    ERROR_LOG("Indirect index out of bounds");
     return -EIO;
   }
 
   if (indirect_blocks[indirect_index] == -1) {
-    indirect_blocks[indirect_index] = allocate_free_data_block();
-    if (indirect_blocks[indirect_index] < 0) {
-      printf("Failed to allocate data block for indirect entry %zu\n",
-             indirect_index);
-      return -EIO;
-    }
-
-    write_data_block(block_buffer, inode->blocks[N_DIRECT]);
+    DEBUG_LOG("Indirect entry not allocated, performing lazy allocation");
+    return -1; // Lazy allocation
   }
 
   return indirect_blocks[indirect_index];
@@ -238,7 +245,10 @@ int allocate_indirect_block(struct wfs_inode *inode, size_t block_index,
 void update_inode_size(struct wfs_inode *inode, size_t inode_num,
                        off_t new_size) {
   if (new_size > inode->size) {
+    DEBUG_LOG("Updating inode size");
     inode->size = new_size;
     write_inode(inode, inode_num);
+  } else {
+    DEBUG_LOG("Inode size remains unchanged");
   }
 }
