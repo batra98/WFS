@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 void read_data_block(void *block, size_t block_index) {
+
   int disk_index = get_raid_disk(block_index / BLOCK_SIZE);
   if (disk_index < 0) {
     fprintf(stderr, "Error: Unable to get disk index for block %zu\n",
@@ -17,8 +18,11 @@ void read_data_block(void *block, size_t block_index) {
     return;
   }
 
-  size_t block_offset = (block_index % BLOCK_SIZE) * BLOCK_SIZE;
+  size_t block_offset = DATA_BLOCK_OFFSET(block_index);
   char *disk_mmap = (char *)wfs_ctx.disk_mmaps[disk_index];
+
+  printf("Reading block %ld (offset: %zu)\n", block_index, block_offset);
+
   memcpy(block, disk_mmap + block_offset, BLOCK_SIZE);
 }
 
@@ -33,6 +37,8 @@ void write_data_block(const void *block, size_t block_index) {
   size_t block_offset = DATA_BLOCK_OFFSET(block_index);
   char *disk_mmap = (char *)wfs_ctx.disk_mmaps[disk_index];
   memcpy(disk_mmap + block_offset, block, BLOCK_SIZE);
+
+  printf("Writing block %ld (offset: %zu)\n", block_index, block_offset);
 
   if (sb.raid_mode == RAID_1)
     replicate(block, block_offset, BLOCK_SIZE, disk_index);
@@ -117,6 +123,9 @@ int add_dentry_to_parent(struct wfs_inode *parent_inode, int parent_inode_num,
       strncpy(new_block[0].name, dirname, MAX_NAME);
 
       write_data_block(new_block, parent_block_num);
+
+      parent_inode->size += sizeof(struct wfs_dentry);
+      parent_inode->nlinks++;
       write_inode(parent_inode, parent_inode_num);
 
       printf("Added new directory entry to newly allocated block: %s\n",
@@ -139,6 +148,8 @@ int add_dentry_to_parent(struct wfs_inode *parent_inode, int parent_inode_num,
         parent_dir_block[j].num = inode_num;
         strncpy(parent_dir_block[j].name, dirname, MAX_NAME);
 
+        parent_inode->size += sizeof(struct wfs_dentry);
+        parent_inode->nlinks++;
         write_data_block(parent_dir_block, parent_inode->blocks[i]);
         write_inode(parent_inode, parent_inode_num);
 

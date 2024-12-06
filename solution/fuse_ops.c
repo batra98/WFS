@@ -12,6 +12,87 @@
 #include <string.h>
 #include <unistd.h>
 
+int wfs_read(const char *path, char *buf, size_t size, off_t offset,
+             struct fuse_file_info *fi) {
+  printf("Entering wfs_read: path = %s, size = %zu, offset = %lld\n", path,
+         size, (long long)offset);
+
+  int N_DIRECT = N_BLOCKS;
+  size_t bytes_read = 0;
+  size_t block_offset, to_read;
+  char block_buffer[BLOCK_SIZE];
+
+  int inode_num = get_inode_index(path);
+  if (inode_num == -ENOENT) {
+    printf("File not found: %s\n", path);
+    return -ENOENT;
+  }
+
+  struct wfs_inode inode;
+  read_inode(&inode, inode_num);
+
+  if (!S_ISREG(inode.mode)) {
+    printf("Path is not a regular file: %s\n", path);
+    return -EISDIR;
+  }
+
+  printf("Inode info: size = %zu, blocks = %ld\n", inode.size, inode.blocks[0]);
+
+  if (offset >= inode.size) {
+    printf("Offset is beyond the file size: %s\n", path);
+    return 0; // No data to read beyond file size
+  }
+
+  while (bytes_read < size && offset + bytes_read < inode.size) {
+    size_t block_index = (offset + bytes_read) / BLOCK_SIZE;
+    block_offset = (offset + bytes_read) % BLOCK_SIZE;
+
+    printf("block_index = %ld, block_offset = %ld\n", block_index,
+           block_offset);
+
+    if (block_index >= N_DIRECT) {
+      printf("File size exceeds direct block limit\n");
+      return -EFBIG;
+    }
+
+    int data_block_num = inode.blocks[block_index];
+    if (data_block_num == -1) {
+      printf("No data block allocated at index %zu\n", block_index);
+      return -EIO;
+    }
+
+    printf("Reading data block number: %d\n", data_block_num);
+    read_data_block(block_buffer, data_block_num);
+
+    // Debug: Print block contents before reading
+    printf("Block %d contents before read:\n", data_block_num);
+    for (int i = 0; i < BLOCK_SIZE; i++) {
+      printf("%02x ", (unsigned char)block_buffer[i]);
+    }
+    printf("\n");
+
+    to_read = (inode.size - (offset + bytes_read) < BLOCK_SIZE - block_offset)
+                  ? inode.size - (offset + bytes_read)
+                  : BLOCK_SIZE - block_offset;
+
+    printf("to_read: %ld\n", to_read);
+
+    memcpy(buf + bytes_read, block_buffer + block_offset, to_read);
+
+    // Debug: Print buffer after copying
+    printf("Buffer after reading data:\n");
+    for (size_t i = 0; i < to_read; i++) {
+      printf("%02x ", (unsigned char)buf[bytes_read + i]);
+    }
+    printf("\n");
+
+    bytes_read += to_read;
+  }
+
+  printf("Read complete: %zu bytes read from %s\n", bytes_read, path);
+  return bytes_read;
+}
+
 int wfs_write(const char *path, const char *buf, size_t size, off_t offset,
               struct fuse_file_info *fi) {
   printf("Entering wfs_write: path = %s, size = %zu, offset = %lld\n", path,
@@ -36,9 +117,14 @@ int wfs_write(const char *path, const char *buf, size_t size, off_t offset,
     return -EISDIR;
   }
 
+  printf("Inode info: size = %zu, blocks = %ld\n", inode.size, inode.blocks[0]);
+
   while (bytes_written < size) {
     size_t block_index = (offset + bytes_written) / BLOCK_SIZE;
     block_offset = (offset + bytes_written) % BLOCK_SIZE;
+
+    printf("block_index = %ld, block_offset = %ld\n", block_index,
+           block_offset);
 
     if (block_index >= N_DIRECT) {
       printf("File size exceeds direct block limit\n");
@@ -46,20 +132,45 @@ int wfs_write(const char *path, const char *buf, size_t size, off_t offset,
     }
 
     int data_block_num = allocate_direct_block(&inode, block_index);
+    printf("Allocated block number: %d for block_index: %zu\n", data_block_num,
+           block_index);
 
+    // Read current block into buffer
     read_data_block(block_buffer, data_block_num);
+
+    // Debug: Print block before writing
+    printf("Block %d before write:\n", data_block_num);
+    for (int i = 0; i < BLOCK_SIZE; i++) {
+      printf("%02x ", (unsigned char)block_buffer[i]);
+    }
+    printf("\n");
 
     to_write = (size - bytes_written < BLOCK_SIZE - block_offset)
                    ? size - bytes_written
                    : BLOCK_SIZE - block_offset;
 
-    memcpy(block_buffer + block_offset, buf, to_write);
+    printf("to_write: %ld\n", to_write);
+
+    // Copy data to block buffer
+    memcpy(block_buffer + block_offset, buf + bytes_written, to_write);
+
+    // Debug: Print block buffer after copying data
+    printf("Block buffer after write:\n");
+    for (int i = 0; i < BLOCK_SIZE; i++) {
+      printf("%02x ", (unsigned char)block_buffer[i]);
+    }
+    printf("\n");
+
+    // Write data to block
     write_data_block(block_buffer, data_block_num);
+    printf("Data written to block number: %d\n", data_block_num);
 
     bytes_written += to_write;
   }
 
+  // Update inode size if necessary
   update_inode_size(&inode, inode_num, offset + bytes_written);
+  printf("Inode size updated to: %zu\n", inode.size);
 
   printf("Write complete: %zu bytes written to %s\n", bytes_written, path);
   return bytes_written;
@@ -260,4 +371,5 @@ struct fuse_operations ops = {
     .mkdir = wfs_mkdir,
     .mknod = wfs_mknod,
     .write = wfs_write,
+    .read = wfs_read,
 };

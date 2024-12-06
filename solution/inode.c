@@ -114,6 +114,8 @@ int find_dentry_in_inode(int parent_inode_num, const char *name) {
       int disk_index = get_raid_disk(offset);
       memcpy(&entry, (char *)wfs_ctx.disk_mmaps[disk_index] + offset,
              sizeof(struct wfs_dentry));
+      if (entry.num == -1)
+        continue;
       printf("Entry %zu: name = %s, num = %d\n", j, entry.name, entry.num);
 
       if (strcmp(entry.name, name) == 0) {
