@@ -92,6 +92,6 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // printf("Filesystem initialized successfully on %d disk(s).\n", disk_count);
+  DEBUG_LOG("Filesystem initialized successfully on %d disk(s).\n", disk_count);
   return 0;
 }

@@ -3,7 +3,7 @@ CC = gcc
 CFLAGS = -Wall -Werror -pedantic -std=gnu18 -g -D_FILE_OFFSET_BITS=64
 FUSE_CFLAGS = `pkg-config fuse --cflags --libs`
 
-MKFS_SRCS = mkfs.c fs_utils.c 
+MKFS_SRCS = mkfs.c fs_utils.c globals.c  
 MKFS_OBJS = $(MKFS_SRCS:.c=.o)
 
 WFS_SRCS = wfs.c raid.c globals.c inode.c fuse_ops.c fs_utils.c data_block.c

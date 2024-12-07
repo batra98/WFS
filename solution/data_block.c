@@ -99,29 +99,15 @@ int allocate_free_data_block() {
   size_t data_bitmap_size = (sb.num_data_blocks + 7) / 8;
   char data_block_bitmap[data_bitmap_size];
 
-  if (sb.raid_mode == RAID_0) {
-    read_data_block_bitmap(data_block_bitmap, 0);
+  for (int i = 0; i < sb.num_data_blocks; i++) {
+    for (int j = 0; j < wfs_ctx.num_disks; j++) {
+      read_data_block_bitmap(data_block_bitmap, j);
 
-    for (int i = 0; i < sb.num_data_blocks; i++) {
       if (!IS_BIT_SET(data_block_bitmap, i)) {
         SET_BIT(data_block_bitmap, i);
-        write_data_block_bitmap(data_block_bitmap, 0);
-        DEBUG_LOG("Allocated data block %d\n", i);
-        return i;
-      }
-    }
-  } else if (sb.raid_mode == RAID_1 || sb.raid_mode == RAID_1v) {
-
-    for (int i = 0; i < sb.num_data_blocks; i++) {
-      for (int j = 0; j < wfs_ctx.num_disks; j++) {
-        read_data_block_bitmap(data_block_bitmap, j);
-
-        if (!IS_BIT_SET(data_block_bitmap, i)) {
-          SET_BIT(data_block_bitmap, i);
-          write_data_block_bitmap(data_block_bitmap, j);
-          DEBUG_LOG("Allocated data block %d on disk %d", i, j);
-          return i * wfs_ctx.num_disks + j;
-        }
+        write_data_block_bitmap(data_block_bitmap, j);
+        DEBUG_LOG("Allocated data block %d on disk %d", i, j);
+        return i * wfs_ctx.num_disks + j;
       }
     }
   }

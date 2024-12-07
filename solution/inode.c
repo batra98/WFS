@@ -62,7 +62,7 @@ void write_inode_bitmap(const char *inode_bitmap) {
 }
 
 void clear_inode_bitmap(int inode_num) {
-  printf("Clearing inode bitmap for inode number: %d\n", inode_num);
+  ERROR_LOG("Clearing inode bitmap for inode number: %d\n", inode_num);
 
   char bitmap_block[BLOCK_SIZE];
   read_inode_bitmap(bitmap_block);
@@ -75,7 +75,7 @@ void clear_inode_bitmap(int inode_num) {
 
   write_inode_bitmap(bitmap_block);
 
-  printf("Inode bitmap cleared for inode number: %d\n", inode_num);
+  ERROR_LOG("Inode bitmap cleared for inode number: %d\n", inode_num);
 }
 
 int free_inode(int inode_num) {
