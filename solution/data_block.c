@@ -26,10 +26,23 @@ void read_data_block(void *block, size_t block_index) {
   }
 
   size_t block_offset = DATA_BLOCK_OFFSET(block_index);
-  memcpy(block, (char *)wfs_ctx.disk_mmaps[disk_index] + block_offset,
-         BLOCK_SIZE);
-  DEBUG_LOG("Read block %zu (offset: %zu) from disk %d\n", block_index,
-            block_offset, disk_index);
+
+  if (sb.raid_mode == RAID_0 || sb.raid_mode == RAID_1) {
+
+    memcpy(block, (char *)wfs_ctx.disk_mmaps[disk_index] + block_offset,
+           BLOCK_SIZE);
+    DEBUG_LOG("Read block %zu (offset: %zu) from disk %d\n", block_index,
+              block_offset, disk_index);
+  } else if (sb.raid_mode == RAID_1v) {
+    if (get_majority_block(block, block_offset) < 0) {
+      ERROR_LOG("Failed to read majority block for block index %zu\n",
+                block_index);
+      return;
+    }
+
+    DEBUG_LOG("Read majority block %zu (offset: %zu) successfully\n",
+              block_index, block_offset);
+  }
 }
 
 void write_data_block(const void *block, size_t block_index) {
@@ -46,7 +59,7 @@ void write_data_block(const void *block, size_t block_index) {
   DEBUG_LOG("Wrote block %zu (offset: %zu) to disk %d\n", block_index,
             block_offset, disk_index);
 
-  if (sb.raid_mode == RAID_1) {
+  if (sb.raid_mode == RAID_1 || sb.raid_mode == RAID_1v) {
     replicate(block, block_offset, BLOCK_SIZE, disk_index);
   }
 }
@@ -76,7 +89,7 @@ void write_data_block_bitmap(const char *data_block_bitmap, int disk_index) {
          data_block_bitmap, data_bitmap_size);
   DEBUG_LOG("Wrote data block bitmap to disk %d\n", disk_index);
 
-  if (sb.raid_mode == RAID_1) {
+  if (sb.raid_mode == RAID_1 || sb.raid_mode == RAID_1v) {
     replicate(data_block_bitmap, DATA_BITMAP_OFFSET, data_bitmap_size,
               disk_index);
   }
@@ -97,7 +110,7 @@ int allocate_free_data_block() {
         return i;
       }
     }
-  } else if (sb.raid_mode == RAID_1) {
+  } else if (sb.raid_mode == RAID_1 || sb.raid_mode == RAID_1v) {
 
     for (int i = 0; i < sb.num_data_blocks; i++) {
       for (int j = 0; j < wfs_ctx.num_disks; j++) {

@@ -1,5 +1,5 @@
+#include "globals.h"
 #include "wfs.h"
-
 #include <fcntl.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -75,7 +75,7 @@ struct wfs_sb write_superblock(int fd, size_t inode_count,
   ssize_t bytes_written = write(fd, &sb, sizeof(struct wfs_sb));
 
   if (bytes_written != sizeof(struct wfs_sb)) {
-    perror("Failed to write superblock");
+    ERROR_LOG("Failed to write superblock");
     exit(EXIT_FAILURE);
   }
 
@@ -93,7 +93,7 @@ void write_bitmaps(int fd, size_t inode_count, size_t data_block_count,
   lseek(fd, sb->i_bitmap_ptr, SEEK_SET);
   ssize_t bytes_written = write(fd, bitmap, i_bitmap_size);
   if (bytes_written != (ssize_t)i_bitmap_size) {
-    perror("Failed to write inode bitmap");
+    ERROR_LOG("Failed to write inode bitmap");
     free(bitmap);
     exit(EXIT_FAILURE);
   }
@@ -102,7 +102,7 @@ void write_bitmaps(int fd, size_t inode_count, size_t data_block_count,
   bitmap = calloc(1, d_bitmap_size);
   lseek(fd, sb->d_bitmap_ptr, SEEK_SET);
   if (write(fd, bitmap, d_bitmap_size) != (ssize_t)d_bitmap_size) {
-    perror("Failed to write data block bitmap");
+    ERROR_LOG("Failed to write data block bitmap");
     free(bitmap);
     exit(EXIT_FAILURE);
   }
@@ -142,13 +142,13 @@ int initialize_disk(const char *disk_file, size_t inode_count,
                     int raid_mode, int disk_index, int total_disks) {
   int fd = open(disk_file, O_RDWR, 0644);
   if (fd < 0) {
-    perror("Error opening disk file");
+    ERROR_LOG("Error opening disk file");
     return -1;
   }
 
   off_t disk_size = lseek(fd, 0, SEEK_END);
   if (disk_size < required_size) {
-    // fprintf(stderr, "Disk %s is too small for the filesystem\n", disk_file);
+    ERROR_LOG("Disk %s is too small for the filesystem\n", disk_file);
     close(fd);
     return -1;
   }

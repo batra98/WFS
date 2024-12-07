@@ -5,27 +5,28 @@
 
 #define RAID_0 0
 #define RAID_1 1
+#define RAID_1v 2
 
 #define PRINT_SUPERBLOCK(sb)                                                   \
   do {                                                                         \
-    printf("Superblock Contents:\n");                                          \
-    printf("  Total Blocks: %ld\n", (sb).num_data_blocks);                     \
-    printf("  Inode Count: %ld\n", (sb).num_inodes);                           \
-    printf("  Data Blocks Pointer: %ld\n", (sb).d_blocks_ptr);                 \
-    printf("  Inode Blocks Pointer: %ld\n", (sb).i_blocks_ptr);                \
-    printf("  Inode Bitmap Pointer: %ld\n", (sb).i_bitmap_ptr);                \
-    printf("  Data Bitmap Pointer: %ld\n", (sb).d_bitmap_ptr);                 \
+    DEBUG_LOG("Superblock Contents:\n");                                       \
+    DEBUG_LOG("  Total Blocks: %ld\n", (sb).num_data_blocks);                  \
+    DEBUG_LOG("  Inode Count: %ld\n", (sb).num_inodes);                        \
+    DEBUG_LOG("  Data Blocks Pointer: %ld\n", (sb).d_blocks_ptr);              \
+    DEBUG_LOG("  Inode Blocks Pointer: %ld\n", (sb).i_blocks_ptr);             \
+    DEBUG_LOG("  Inode Bitmap Pointer: %ld\n", (sb).i_bitmap_ptr);             \
+    DEBUG_LOG("  Data Bitmap Pointer: %ld\n", (sb).d_bitmap_ptr);              \
   } while (0)
 
 #define PRINT_BITMAP(title, bitmap)                                            \
   do {                                                                         \
-    printf("%s\n", title);                                                     \
+    DEBUG_LOG("%s\n", title);                                                  \
     for (int i = 0; i < BLOCK_SIZE; i++) {                                     \
-      printf("%02x ", (unsigned char)bitmap[i]);                               \
+      DEBUG_LOG("%02x ", (unsigned char)bitmap[i]);                            \
       if ((i + 1) % 16 == 0)                                                   \
-        printf("\n");                                                          \
+        DEBUG_LOG("\n");                                                       \
     }                                                                          \
-    printf("\n");                                                              \
+    DEBUG_LOG("\n");                                                           \
   } while (0)
 
 #define DENTRY_OFFSET(block, index)                                            \
@@ -35,8 +36,19 @@
 #define INODE_OFFSET(index) (sb.i_blocks_ptr + (index) * BLOCK_SIZE)
 #define INODE_BITMAP_OFFSET sb.i_bitmap_ptr
 
-#define DEBUG_LOG(fmt, ...) fprintf(stderr, "[DEBUG] " fmt "\n", ##__VA_ARGS__)
-#define ERROR_LOG(fmt, ...) fprintf(stderr, "[ERROR] " fmt "\n", ##__VA_ARGS__)
+extern int debug;
+
+#define DEBUG_LOG(fmt, ...)                                                    \
+  do {                                                                         \
+    if (debug)                                                                 \
+      fprintf(stderr, "[DEBUG] " fmt "\n", ##__VA_ARGS__);                     \
+  } while (0)
+
+#define ERROR_LOG(fmt, ...)                                                    \
+  do {                                                                         \
+    if (debug)                                                                 \
+      fprintf(stderr, "[ERROR] " fmt "\n", ##__VA_ARGS__);                     \
+  } while (0)
 
 #define SET_BIT(bitmap, index) (bitmap[(index) / 8] |= (1 << ((index) % 8)))
 #define IS_BIT_SET(bitmap, index) (bitmap[(index) / 8] & (1 << ((index) % 8)))

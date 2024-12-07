@@ -13,10 +13,9 @@
 #include <unistd.h>
 
 static void print_usage(const char *progname) {
-  fprintf(stderr, "Usage: %s disk1 [disk2 ...] [FUSE options] mount_point\n",
-          progname);
-  fprintf(stderr,
-          "Ensure WFS is initialized using mkfs with RAID mode and disks.\n");
+  DEBUG_LOG("Usage: %s disk1 [disk2 ...] [FUSE options] mount_point\n",
+            progname);
+  DEBUG_LOG("Ensure WFS is initialized using mkfs with RAID mode and disks.\n");
 }
 
 void initialize_wfs_context(void **disk_mmaps, int num_disks, int raid_mode,
@@ -36,7 +35,7 @@ static int parse_args(int argc, char *argv[], char ***disk_paths,
          access(argv[i], F_OK) == 0) {
     *disk_paths = realloc(*disk_paths, (*num_disks + 1) * sizeof(char *));
     if (*disk_paths == NULL) {
-      perror("Error allocating memory for disk paths");
+      ERROR_LOG("Error allocating memory for disk paths");
       return -1;
     }
     (*disk_paths)[*num_disks] = argv[i];
@@ -45,18 +44,18 @@ static int parse_args(int argc, char *argv[], char ***disk_paths,
   }
 
   if (*num_disks < 2) {
-    fprintf(stderr, "At least two disk must be provided.\n");
+    ERROR_LOG("At least two disk must be provided.\n");
     return -1;
   }
 
   if (i < argc) {
     *mount_point = argv[argc - 1];
     if (access(*mount_point, F_OK) != 0) {
-      fprintf(stderr, "Invalid mount point: %s\n", *mount_point);
+      ERROR_LOG("Invalid mount point: %s\n", *mount_point);
       return -1;
     }
   } else {
-    fprintf(stderr, "No mount point specified.\n");
+    ERROR_LOG("No mount point specified.\n");
     return -1;
   }
 
@@ -68,7 +67,7 @@ static int parse_args(int argc, char *argv[], char ***disk_paths,
 
 int load_superblock(void *disk_mmap, struct wfs_sb *sb) {
   if (!disk_mmap || !sb) {
-    fprintf(stderr, "Invalid arguments to load_superblock.\n");
+    ERROR_LOG("Invalid arguments to load_superblock.\n");
     return -1;
   }
 
@@ -79,9 +78,9 @@ int load_superblock(void *disk_mmap, struct wfs_sb *sb) {
 }
 
 void print_arguments(int argc, char **argv) {
-  printf("Arguments passed to the program:\n");
+  DEBUG_LOG("Arguments passed to the program:\n");
   for (int i = 0; i < argc; i++) {
-    printf("  argv[%d]: %s\n", i, argv[i]);
+    DEBUG_LOG("  argv[%d]: %s\n", i, argv[i]);
   }
 }
 
@@ -106,27 +105,27 @@ int main(int argc, char *argv[]) {
 
   void **disk_mmaps = malloc(num_disks * sizeof(void *));
   size_t *disk_sizes = malloc(num_disks * sizeof(size_t));
+
   if (!disk_mmaps || !disk_sizes) {
-    perror("Error allocating memory for disk mappings or sizes");
+    ERROR_LOG("Error allocating memory for disk mappings or sizes");
     free(disk_paths);
     free(disk_mmaps);
     free(disk_sizes);
     return EXIT_FAILURE;
   }
 
-  // Open and map each disk
   int success = 1;
   for (int i = 0; i < num_disks; i++) {
     int fd = open(disk_paths[i], O_RDWR);
     if (fd < 0) {
-      perror("Error opening disk file");
+      ERROR_LOG("Error opening disk file");
       success = 0;
       break;
     }
 
     struct stat st;
     if (fstat(fd, &st) < 0) {
-      perror("Error getting disk size");
+      ERROR_LOG("Error getting disk size");
       close(fd);
       success = 0;
       break;
@@ -136,7 +135,7 @@ int main(int argc, char *argv[]) {
     disk_mmaps[i] =
         mmap(NULL, disk_sizes[i], PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (disk_mmaps[i] == MAP_FAILED) {
-      perror("Error mapping disk file");
+      ERROR_LOG("Error mapping disk file");
       close(fd);
       success = 0;
       break;
@@ -158,8 +157,7 @@ int main(int argc, char *argv[]) {
   }
 
   if (load_superblock(disk_mmaps[0], &sb) != 0) {
-    fprintf(
-        stderr,
+    ERROR_LOG(
         "Error reading superblock. Ensure disks are initialized using mkfs.\n");
     for (int i = 0; i < num_disks; i++) {
       munmap(disk_mmaps[i], disk_sizes[i]);
@@ -170,15 +168,14 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  printf(
+  DEBUG_LOG(
       "Loaded superblock: RAID mode = %d, num_inodes = %ld, num_blocks = %ld\n",
       sb.raid_mode, sb.num_inodes, sb.num_data_blocks);
 
   initialize_wfs_context(disk_mmaps, num_disks, sb.raid_mode, disk_sizes);
-  printf("Starting FUSE with mount point: %s\n", mount_point);
+  DEBUG_LOG("Starting FUSE with mount point: %s\n", mount_point);
 
   print_arguments(fuse_argc, fuse_args);
   int ret = fuse_main(fuse_argc, fuse_args, &ops, NULL);
-
   return ret;
 }
