@@ -116,6 +116,7 @@ int main(int argc, char *argv[]) {
 
   int success = 1;
   for (int i = 0; i < num_disks; i++) {
+
     int fd = open(disk_paths[i], O_RDWR);
     if (fd < 0) {
       ERROR_LOG("Error opening disk file");
@@ -131,10 +132,20 @@ int main(int argc, char *argv[]) {
       break;
     }
 
-    disk_sizes[i] = st.st_size;
-    disk_mmaps[i] =
-        mmap(NULL, disk_sizes[i], PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (disk_mmaps[i] == MAP_FAILED) {
+    struct wfs_sb *sb_temp = mmap(NULL, sizeof(struct wfs_sb),
+                                  PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (sb_temp == MAP_FAILED) {
+      ERROR_LOG("Error mapping temp file");
+      close(fd);
+      return EXIT_FAILURE;
+    }
+
+    int disk_index = sb_temp->disk_index;
+
+    disk_sizes[disk_index] = st.st_size;
+    disk_mmaps[disk_index] = mmap(NULL, disk_sizes[disk_index],
+                                  PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (disk_mmaps[disk_index] == MAP_FAILED) {
       ERROR_LOG("Error mapping disk file");
       close(fd);
       success = 0;

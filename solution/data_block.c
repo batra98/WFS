@@ -218,8 +218,8 @@ int allocate_direct_block(struct wfs_inode *inode, size_t block_index) {
   if (inode->blocks[block_index] == -1) {
     inode->blocks[block_index] = allocate_free_data_block();
     if (inode->blocks[block_index] < 0) {
-      printf("Failed to allocate data block for direct block %zu\n",
-             block_index);
+      ERROR_LOG("Failed to allocate data block for direct block %zu\n",
+                block_index);
       return -EIO;
     }
   }
@@ -307,7 +307,7 @@ int read_from_indirect_block(struct wfs_inode *inode, size_t indirect_index,
   int N_DIRECT = N_BLOCKS - 1;
 
   if (inode->blocks[N_DIRECT] == -1) {
-    printf("Indirect block not allocated\n");
+    ERROR_LOG("Indirect block not allocated\n");
     return -1;
   }
 
