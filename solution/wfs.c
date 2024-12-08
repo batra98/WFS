@@ -18,17 +18,13 @@ static void print_usage(const char *progname) {
   DEBUG_LOG("Ensure WFS is initialized using mkfs with RAID mode and disks.\n");
 }
 
-void initialize_wfs_context(void **disk_mmaps, int num_disks, int raid_mode,
-                            size_t *disk_sizes) {
-  initialize_raid(disk_mmaps, num_disks, raid_mode, disk_sizes);
-}
-
 static int parse_args(int argc, char *argv[], char ***disk_paths,
                       int *num_disks, char ***fuse_args, int *fuse_argc,
                       char **mount_point) {
+  DEBUG_LOG("Parsing command-line arguments.");
+
   *num_disks = 0;
   int i = 1;
-
   *disk_paths = NULL;
 
   while (i < argc && strncmp(argv[i], "-", 1) != 0 &&
@@ -62,6 +58,8 @@ static int parse_args(int argc, char *argv[], char ***disk_paths,
   *fuse_args = argv + i;
   *fuse_argc = argc - i;
 
+  DEBUG_LOG("Arguments parsed successfully: %d disks, mount point: %s",
+            *num_disks, *mount_point);
   return 0;
 }
 
@@ -183,7 +181,7 @@ int main(int argc, char *argv[]) {
       "Loaded superblock: RAID mode = %d, num_inodes = %ld, num_blocks = %ld\n",
       sb.raid_mode, sb.num_inodes, sb.num_data_blocks);
 
-  initialize_wfs_context(disk_mmaps, num_disks, sb.raid_mode, disk_sizes);
+  initialize_raid(disk_mmaps, num_disks, sb.raid_mode, disk_sizes);
   DEBUG_LOG("Starting FUSE with mount point: %s\n", mount_point);
 
   print_arguments(fuse_argc, fuse_args);

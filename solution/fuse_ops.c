@@ -13,6 +13,69 @@
 #include <string.h>
 #include <unistd.h>
 
+static int read_and_validate_parent_inode(struct wfs_inode *parent_inode,
+                                          int parent_inode_num) {
+  read_inode(parent_inode, parent_inode_num);
+
+  if (!S_ISDIR(parent_inode->mode)) {
+    DEBUG_LOG("Parent is not a directory: inode_num = %d", parent_inode_num);
+    return -ENOTDIR;
+  }
+  DEBUG_LOG("Parent directory validated: inode_num = %d", parent_inode_num);
+  return 0;
+}
+
+static int add_file_to_parent(struct wfs_inode *parent_inode,
+                              int parent_inode_num, const char *filename,
+                              int inode_num) {
+  if (add_dentry_to_parent(parent_inode, parent_inode_num, filename,
+                           inode_num) < 0) {
+    DEBUG_LOG("Failed to add directory entry for file: %s", filename);
+    return -EIO;
+  }
+  DEBUG_LOG("Added file to parent directory: %s", filename);
+  return 0;
+}
+
+int wfs_mkdir(const char *path, mode_t mode) {
+  DEBUG_LOG("Entering wfs_mkdir: path = %s\n", path);
+
+  char parent_path[PATH_MAX];
+  char dirname[MAX_NAME];
+  split_path(path, parent_path, dirname);
+  DEBUG_LOG("Split path: parent = %s, dirname = %s\n", parent_path, dirname);
+
+  int parent_inode_num = get_inode_index(parent_path);
+  if (parent_inode_num == -ENOENT) {
+    DEBUG_LOG("Parent directory not found: %s\n", parent_path);
+    return -ENOENT;
+  }
+
+  struct wfs_inode parent_inode;
+  if (read_and_validate_parent_inode(&parent_inode, parent_inode_num) != 0) {
+    return -ENOTDIR; // Error already logged in helper function
+  }
+
+  if (check_duplicate_dentry(&parent_inode, dirname) == 0) {
+    DEBUG_LOG("Directory already exists: %s\n", path);
+    return -EEXIST;
+  }
+
+  int inode_num = allocate_and_init_inode(mode, S_IFDIR);
+  if (inode_num < 0) {
+    DEBUG_LOG("Failed to allocate inode for directory: %s\n", path);
+    return inode_num;
+  }
+
+  if (add_dentry_to_parent(&parent_inode, parent_inode_num, dirname,
+                           inode_num) < 0) {
+    DEBUG_LOG("Failed to add file entry: %s\n", dirname);
+    return -EIO;
+  }
+  DEBUG_LOG("Directory created successfully: %s\n", path);
+  return 0;
+}
+
 int wfs_unlink(const char *path) {
   DEBUG_LOG("Entering wfs_unlink: path = %s\n", path);
 
@@ -64,6 +127,69 @@ int wfs_unlink(const char *path) {
   write_inode(&parent_inode, parent_inode_num);
 
   DEBUG_LOG("File successfully removed: %s\n", path);
+  return 0;
+}
+
+static int find_inode_for_path(const char *path) {
+  int inode_num = get_inode_index(path);
+
+  if (inode_num == -ENOENT) {
+    DEBUG_LOG("File not found: %s", path);
+    return -ENOENT;
+  }
+
+  DEBUG_LOG("Found inode for %s: %d", path, inode_num);
+  return inode_num;
+}
+
+static int load_inode(int inode_num, struct wfs_inode *inode) {
+  if (!inode) {
+    DEBUG_LOG("Invalid inode pointer for inode number: %d", inode_num);
+    return -EIO;
+  }
+
+  read_inode(inode, inode_num);
+  DEBUG_LOG("Inode read: mode = %o, size = %ld, nlinks = %d", inode->mode,
+            inode->size, inode->nlinks);
+
+  return 0;
+}
+
+static void populate_stat_from_inode(const struct wfs_inode *inode,
+                                     struct stat *stbuf) {
+  if (!inode || !stbuf) {
+    DEBUG_LOG("Invalid arguments to populate_stat_from_inode");
+    return;
+  }
+
+  memset(stbuf, 0, sizeof(struct stat));
+  stbuf->st_mode = inode->mode;
+  stbuf->st_nlink = inode->nlinks;
+  stbuf->st_size = inode->size;
+  stbuf->st_atime = inode->atim;
+  stbuf->st_mtime = inode->mtim;
+  stbuf->st_ctime = inode->ctim;
+
+  DEBUG_LOG("Stat structure populated: mode = %o, size = %ld, nlinks = %ld",
+            stbuf->st_mode, stbuf->st_size, stbuf->st_nlink);
+}
+
+int wfs_getattr(const char *path, struct stat *stbuf) {
+  DEBUG_LOG("Entering wfs_getattr: path = %s", path);
+
+  int inode_num = find_inode_for_path(path);
+  if (inode_num < 0) {
+    return inode_num; // Error already logged in the helper
+  }
+
+  struct wfs_inode inode;
+  if (load_inode(inode_num, &inode) != 0) {
+    return -EIO; // Error already logged in the helper
+  }
+
+  populate_stat_from_inode(&inode, stbuf);
+  DEBUG_LOG("Attributes populated successfully for %s", path);
+
   return 0;
 }
 
@@ -197,7 +323,6 @@ int wfs_read(const char *path, char *buf, size_t size, off_t offset,
 
     memcpy(buf + bytes_read, block_buffer + block_offset, to_read);
 
-    // Debug: Print buffer after copying
     DEBUG_LOG("Buffer after reading data:\n");
     for (size_t i = 0; i < to_read; i++) {
       DEBUG_LOG("%02x ", (unsigned char)buf[bytes_read + i]);
@@ -305,10 +430,7 @@ int wfs_mknod(const char *path, mode_t mode, dev_t dev) {
   }
 
   struct wfs_inode parent_inode;
-  read_inode(&parent_inode, parent_inode_num);
-
-  if (!S_ISDIR(parent_inode.mode)) {
-    DEBUG_LOG("Parent is not a directory: %s\n", parent_path);
+  if (read_and_validate_parent_inode(&parent_inode, parent_inode_num) != 0) {
     return -ENOTDIR;
   }
 
@@ -323,9 +445,9 @@ int wfs_mknod(const char *path, mode_t mode, dev_t dev) {
     return inode_num;
   }
 
-  if (add_dentry_to_parent(&parent_inode, parent_inode_num, filename,
-                           inode_num) < 0) {
-    DEBUG_LOG("Failed to add file entry: %s\n", filename);
+  if (add_file_to_parent(&parent_inode, parent_inode_num, filename,
+                         inode_num) != 0) {
+    DEBUG_LOG("Failed to add file entry: %s", filename);
     return -EIO;
   }
 
@@ -333,46 +455,40 @@ int wfs_mknod(const char *path, mode_t mode, dev_t dev) {
   return 0;
 }
 
-int wfs_mkdir(const char *path, mode_t mode) {
-  DEBUG_LOG("Entering wfs_mkdir: path = %s\n", path);
+static int read_and_fill_directory_entries(const struct wfs_inode *dir_inode,
+                                           void *buf, fuse_fill_dir_t filler) {
+  for (int i = 0; i < N_BLOCKS && dir_inode->blocks[i] != -1; i++) {
+    int block_index = dir_inode->blocks[i];
+    int disk_index;
+    block_index = get_raid_disk(block_index, &disk_index);
 
-  char parent_path[PATH_MAX];
-  char dirname[MAX_NAME];
-  split_path(path, parent_path, dirname);
-  DEBUG_LOG("Split path: parent = %s, dirname = %s\n", parent_path, dirname);
+    if (disk_index < 0) {
+      DEBUG_LOG("Error: Unable to get disk index for block %ld",
+                dir_inode->blocks[i]);
+      return -EIO;
+    }
 
-  int parent_inode_num = get_inode_index(parent_path);
-  if (parent_inode_num == -ENOENT) {
-    DEBUG_LOG("Parent directory not found: %s\n", parent_path);
-    return -ENOENT;
+    size_t block_offset = DATA_BLOCK_OFFSET(block_index);
+    DEBUG_LOG("Reading directory block: %d (offset = %zu)", block_index,
+              block_offset);
+
+    struct wfs_dentry *dentry =
+        (struct wfs_dentry *)((char *)wfs_ctx.disk_mmaps[disk_index] +
+                              block_offset);
+
+    for (size_t entry_idx = 0;
+         entry_idx < BLOCK_SIZE / sizeof(struct wfs_dentry); entry_idx++) {
+      if (dentry[entry_idx].num == -1) {
+        DEBUG_LOG("Skipping empty directory entry at index %zu", entry_idx);
+        continue;
+      }
+
+      DEBUG_LOG("Adding entry: name = %s, inode = %d", dentry[entry_idx].name,
+                dentry[entry_idx].num);
+      filler(buf, dentry[entry_idx].name, NULL, 0);
+    }
   }
 
-  struct wfs_inode parent_inode;
-  read_inode(&parent_inode, parent_inode_num);
-
-  if (!S_ISDIR(parent_inode.mode)) {
-    DEBUG_LOG("Parent is not a directory: %s\n", parent_path);
-    return -ENOTDIR;
-  }
-
-  if (check_duplicate_dentry(&parent_inode, dirname) == 0) {
-    DEBUG_LOG("Directory already exists: %s\n", path);
-    return -EEXIST;
-  }
-
-  int inode_num = allocate_and_init_inode(mode, S_IFDIR);
-  if (inode_num < 0) {
-    DEBUG_LOG("Failed to allocate inode for directory: %s\n", path);
-    return inode_num;
-  }
-
-  if (add_dentry_to_parent(&parent_inode, parent_inode_num, dirname,
-                           inode_num) < 0) {
-    DEBUG_LOG("Failed to add directory entry: %s\n", dirname);
-    return -EIO;
-  }
-
-  DEBUG_LOG("Directory created successfully: %s\n", path);
   return 0;
 }
 
@@ -401,74 +517,16 @@ int wfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
   DEBUG_LOG("Directory inode read successfully: mode = %o, size = %ld\n",
             dir_inode.mode, dir_inode.size);
 
-  for (int i = 0; i < N_BLOCKS && dir_inode.blocks[i] != -1; i++) {
-    int block_index = dir_inode.blocks[i];
-    int disk_index;
-    block_index = get_raid_disk(block_index, &disk_index);
-    if (disk_index < 0) {
-      DEBUG_LOG("Error: Unable to get disk index for block %ld\n",
-                dir_inode.blocks[i]);
-      return -EIO;
-    }
-
-    size_t block_offset = DATA_BLOCK_OFFSET(block_index);
-    DEBUG_LOG("Reading directory block: %d (offset = %zu)\n", block_index,
-              block_offset);
-
-    struct wfs_dentry *dentry =
-        (struct wfs_dentry *)((char *)wfs_ctx.disk_mmaps[disk_index] +
-                              block_offset);
-    for (size_t entry_idx = 0;
-         entry_idx < BLOCK_SIZE / sizeof(struct wfs_dentry); entry_idx++) {
-      if (dentry[entry_idx].num == -1) {
-        DEBUG_LOG("Skipping empty directory entry at index %zu\n", entry_idx);
-        continue;
-      }
-
-      DEBUG_LOG("Adding entry: name = %s, inode = %d\n", dentry[entry_idx].name,
-                dentry[entry_idx].num);
-      filler(buf, dentry[entry_idx].name, NULL, 0);
-    }
+  DEBUG_LOG("Reading directory entries for path: %s", path);
+  if (read_and_fill_directory_entries(&dir_inode, buf, filler) != 0) {
+    return -EIO;
   }
 
-  DEBUG_LOG("Adding special entries '.' and '..'\n");
+  DEBUG_LOG("Adding special entries '.' and '..'");
   filler(buf, ".", NULL, 0);
   filler(buf, "..", NULL, 0);
 
-  fflush(stdout);
-
-  return 0;
-}
-
-int wfs_getattr(const char *path, struct stat *stbuf) {
-  DEBUG_LOG("Entering wfs_getattr: path = %s\n", path);
-
-  int inode_num = get_inode_index(path);
-  if (inode_num == -ENOENT) {
-    DEBUG_LOG("File not found: %s\n", path);
-    return -ENOENT;
-  }
-
-  DEBUG_LOG("Found inode for %s: %d\n", path, inode_num);
-
-  struct wfs_inode inode;
-
-  read_inode(&inode, inode_num);
-
-  DEBUG_LOG("Inode read: mode = %o, size = %ld, nlinks = %d\n", inode.mode,
-            inode.size, inode.nlinks);
-
-  memset(stbuf, 0, sizeof(struct stat));
-  stbuf->st_mode = inode.mode;
-  stbuf->st_nlink = inode.nlinks;
-  stbuf->st_size = inode.size;
-  stbuf->st_atime = inode.atim;
-  stbuf->st_mtime = inode.mtim;
-  stbuf->st_ctime = inode.ctim;
-
-  DEBUG_LOG("Attributes populated for %s\n", path);
-
-  fflush(stdout);
+  DEBUG_LOG("Successfully exited wfs_readdir for path: %s", path);
   return 0;
 }
 
