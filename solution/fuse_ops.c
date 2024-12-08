@@ -38,41 +38,44 @@ static int add_file_to_parent(struct wfs_inode *parent_inode,
 }
 
 int wfs_mkdir(const char *path, mode_t mode) {
-  DEBUG_LOG("Entering wfs_mkdir: path = %s\n", path);
+  DEBUG_LOG("Entering wfs_mkdir: path = %s", path);
 
   char parent_path[PATH_MAX];
   char dirname[MAX_NAME];
   split_path(path, parent_path, dirname);
-  DEBUG_LOG("Split path: parent = %s, dirname = %s\n", parent_path, dirname);
+  DEBUG_LOG("Path split into: parent = %s, dirname = %s", parent_path, dirname);
 
   int parent_inode_num = get_inode_index(parent_path);
   if (parent_inode_num == -ENOENT) {
-    DEBUG_LOG("Parent directory not found: %s\n", parent_path);
+    ERROR_LOG("Parent directory not found: %s", parent_path);
     return -ENOENT;
   }
 
   struct wfs_inode parent_inode;
   if (read_and_validate_parent_inode(&parent_inode, parent_inode_num) != 0) {
-    return -ENOTDIR; // Error already logged in helper function
+    ERROR_LOG("Parent is not a valid directory: %s", parent_path);
+    return -ENOTDIR;
   }
 
   if (check_duplicate_dentry(&parent_inode, dirname) == 0) {
-    DEBUG_LOG("Directory already exists: %s\n", path);
+    DEBUG_LOG("Directory already exists: %s", path);
     return -EEXIST;
   }
 
   int inode_num = allocate_and_init_inode(mode, S_IFDIR);
   if (inode_num < 0) {
-    DEBUG_LOG("Failed to allocate inode for directory: %s\n", path);
+    ERROR_LOG("Failed to allocate inode for directory: %s", path);
     return inode_num;
   }
 
   if (add_dentry_to_parent(&parent_inode, parent_inode_num, dirname,
                            inode_num) < 0) {
-    DEBUG_LOG("Failed to add file entry: %s\n", dirname);
+    ERROR_LOG("Failed to add directory entry: %s to parent: %s", dirname,
+              parent_path);
     return -EIO;
   }
-  DEBUG_LOG("Directory created successfully: %s\n", path);
+
+  DEBUG_LOG("Directory created successfully: %s", path);
   return 0;
 }
 
@@ -179,12 +182,12 @@ int wfs_getattr(const char *path, struct stat *stbuf) {
 
   int inode_num = find_inode_for_path(path);
   if (inode_num < 0) {
-    return inode_num; // Error already logged in the helper
+    return inode_num;
   }
 
   struct wfs_inode inode;
   if (load_inode(inode_num, &inode) != 0) {
-    return -EIO; // Error already logged in the helper
+    return -EIO;
   }
 
   populate_stat_from_inode(&inode, stbuf);
@@ -281,7 +284,7 @@ int wfs_read(const char *path, char *buf, size_t size, off_t offset,
 
   if (offset >= inode.size) {
     DEBUG_LOG("Offset is beyond the file size: %s\n", path);
-    return 0; // No data to read beyond file size
+    return 0;
   }
 
   while (bytes_read < size && offset + bytes_read < inode.size) {
@@ -416,42 +419,44 @@ int wfs_write(const char *path, const char *buf, size_t size, off_t offset,
 }
 
 int wfs_mknod(const char *path, mode_t mode, dev_t dev) {
-  DEBUG_LOG("Entering wfs_mknod: path = %s\n", path);
+  DEBUG_LOG("Entering wfs_mknod: path = %s", path);
 
   char parent_path[PATH_MAX];
   char filename[MAX_NAME];
   split_path(path, parent_path, filename);
-  DEBUG_LOG("Split path: parent = %s, filename = %s\n", parent_path, filename);
+  DEBUG_LOG("Path split: parent = %s, filename = %s", parent_path, filename);
 
   int parent_inode_num = get_inode_index(parent_path);
   if (parent_inode_num == -ENOENT) {
-    DEBUG_LOG("Parent directory not found: %s\n", parent_path);
+    ERROR_LOG("Parent directory not found: %s", parent_path);
     return -ENOENT;
   }
 
   struct wfs_inode parent_inode;
   if (read_and_validate_parent_inode(&parent_inode, parent_inode_num) != 0) {
+    ERROR_LOG("Parent is not a valid directory: %s", parent_path);
     return -ENOTDIR;
   }
 
   if (check_duplicate_dentry(&parent_inode, filename) == 0) {
-    DEBUG_LOG("File already exists: %s\n", path);
+    DEBUG_LOG("File or directory already exists: %s", path);
     return -EEXIST;
   }
 
   int inode_num = allocate_and_init_inode(mode, S_IFREG);
   if (inode_num < 0) {
-    DEBUG_LOG("Failed to allocate inode for file: %s\n", path);
+    ERROR_LOG("Failed to allocate inode for file: %s", path);
     return inode_num;
   }
 
   if (add_file_to_parent(&parent_inode, parent_inode_num, filename,
                          inode_num) != 0) {
-    DEBUG_LOG("Failed to add file entry: %s", filename);
+    ERROR_LOG("Failed to add file entry: %s to parent: %s", filename,
+              parent_path);
     return -EIO;
   }
 
-  DEBUG_LOG("File created successfully: %s\n", path);
+  DEBUG_LOG("File created successfully: %s", path);
   return 0;
 }
 
