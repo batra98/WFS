@@ -2,6 +2,7 @@
 #define GLOBAL_VARS_H
 
 #include "wfs.h"
+#include <stdio.h>
 
 #define RAID_0 0
 #define RAID_1 1

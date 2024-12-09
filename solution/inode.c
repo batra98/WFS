@@ -172,11 +172,11 @@ int is_directory_empty(struct wfs_inode *inode) {
     for (int j = 0; j < BLOCK_SIZE / sizeof(struct wfs_dentry); j++) {
       if (entries[j].num != -1 && strcmp(entries[j].name, ".") != 0 &&
           strcmp(entries[j].name, "..") != 0) {
-        return 0; // Not empty
+        return 0;
       }
     }
   }
-  return 1; // Empty
+  return 1;
 }
 
 int find_dentry_in_inode(int parent_inode_num, const char *name) {

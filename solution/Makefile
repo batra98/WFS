@@ -6,7 +6,7 @@ FUSE_CFLAGS = `pkg-config fuse --cflags --libs`
 MKFS_SRCS = mkfs.c fs_utils.c globals.c  
 MKFS_OBJS = $(MKFS_SRCS:.c=.o)
 
-WFS_SRCS = wfs.c raid.c globals.c inode.c fuse_ops.c fs_utils.c data_block.c
+WFS_SRCS = wfs.c raid.c globals.c inode.c fuse_ops.c fuse_file_ops.c fuse_dir_ops.c fuse_meta_ops.c fuse_common.c fs_utils.c data_block.c
 WFS_OBJS = $(WFS_SRCS:.c=.o)
 
 .PHONY: all clean
