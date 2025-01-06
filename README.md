@@ -1,10 +1,3 @@
-### Repository Name:
-**WFS: A Custom Filesystem Implementation Using FUSE with RAID Support**
-
----
-
-### README
-
 # WFS - A Custom Filesystem in Userspace (FUSE)
 
 Welcome to **WFS** – a custom filesystem implementation built using the **FUSE** (Filesystem in Userspace) framework with support for RAID 0 and RAID 1 configurations. This project demonstrates the creation of a block-based filesystem that integrates basic filesystem operations such as file creation, reading, writing, directory management, and file deletion, with additional capabilities for RAID configurations.
@@ -49,8 +42,8 @@ This project aims to provide hands-on experience in developing a filesystem from
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/wfs.git
-   cd wfs
+   git clone https://github.com/yourusername/WFS.git
+   cd solution
    ```
 
 2. Build the project:
